@@ -1199,12 +1199,9 @@ ${combinedContent}`;
 
 // 复习闪卡模式
 function startFlashcardMode() {
-    // 只复习已 Get 的卡片
+    // 底部复习固定从全部已读卡片中抽取，不受当前筛选影响。
     flashcardQueue = cards.filter(c => c.isRead && !c.is_integrated);
-    if (currentCategory !== '全部' && currentCategory !== '已读') {
-        flashcardQueue = flashcardQueue.filter(c => c.category === currentCategory);
-    }
-    
+
     if (flashcardQueue.length === 0) {
         alert('还没有已读卡片，去详情页点击 Get it 吧！');
         return;
