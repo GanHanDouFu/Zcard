@@ -10,6 +10,8 @@ let currentView = 'home'; // home | unread | read | favorites
 let pendingIntegrateResult = null; // 整合预览暂存
 let swipeReviewQueue = [];
 let swipeReviewIndex = 0;
+let swipeUnderstood = 0;
+let swipeConfused = 0;
 let selectedCards = new Set();
 let flashcardQueue = [];
 let currentFlashcardIndex = 0;
@@ -171,12 +173,17 @@ const els = {
     btnConfirmIntegrate: document.getElementById('btn-confirm-integrate'),
 
     // 左右滑动复习
-    swipeReviewModal: document.getElementById('swipe-review-modal'),
+    swipeModal: document.getElementById('swipe-review-modal'),
     btnCloseSwipeReview: document.getElementById('btn-close-swipe-review'),
-    swipeReviewScene: document.getElementById('swipe-review-scene'),
-    swipeReviewCard: document.getElementById('swipe-review-card'),
-    swipeReviewProgress: document.getElementById('swipe-review-progress'),
-    swipeReviewStatus: document.getElementById('swipe-review-status'),
+    swipeScene: document.getElementById('swipe-review-scene'),
+    swipeCard: document.getElementById('swipe-review-card'),
+    swipeProgress: document.getElementById('swipe-review-progress'),
+    swipeArrowLeft: document.getElementById('swipe-arrow-left'),
+    swipeArrowRight: document.getElementById('swipe-arrow-right'),
+    swipeDone: document.getElementById('swipe-done'),
+    swipeStatUnderstood: document.getElementById('swipe-stat-understood'),
+    swipeStatConfused: document.getElementById('swipe-stat-confused'),
+    btnSwipeDoneClose: document.getElementById('btn-swipe-done-close'),
     srCategory: document.getElementById('sr-category'),
     srTitle: document.getElementById('sr-title'),
     srCore: document.getElementById('sr-core'),
@@ -369,6 +376,7 @@ function bindEvents() {
 
     // 滑动复习弹窗
     els.btnCloseSwipeReview.addEventListener('click', closeSwipeReview);
+    els.btnSwipeDoneClose.addEventListener('click', closeSwipeReview);
     bindSwipeReviewGestures();
     
     // 闪卡复习
@@ -780,53 +788,64 @@ function openSwipeReview() {
         alert('还没有已读卡片，先去详情页点击 Get it 吧！');
         return;
     }
-    // 随机打乱顺序
+    // 随机打乱
     for (let i = swipeReviewQueue.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
         [swipeReviewQueue[i], swipeReviewQueue[j]] = [swipeReviewQueue[j], swipeReviewQueue[i]];
     }
     swipeReviewIndex = 0;
-    els.swipeReviewModal.classList.remove('hidden');
+    swipeUnderstood = 0;
+    swipeConfused = 0;
+    els.swipeDone.classList.add('hidden');
+    els.swipeScene.style.display = '';
+    document.querySelector('.swipe-head').style.display = '';
+    els.swipeModal.classList.remove('hidden');
     renderSwipeReviewCard();
 }
 
 function closeSwipeReview() {
-    els.swipeReviewModal.classList.add('hidden');
-    els.swipeReviewStatus.textContent = '';
+    els.swipeModal.classList.add('hidden');
     renderDailyReview();
 }
 
 function renderSwipeReviewCard() {
     if (swipeReviewIndex >= swipeReviewQueue.length) {
-        els.swipeReviewStatus.textContent = '复习完成！';
-        els.swipeReviewCard.style.display = 'none';
-        setTimeout(closeSwipeReview, 1200);
+        // 复习完成
+        els.swipeScene.style.display = 'none';
+        document.querySelector('.swipe-head').style.display = 'none';
+        els.swipeStatUnderstood.textContent = swipeUnderstood;
+        els.swipeStatConfused.textContent = swipeConfused;
+        els.swipeDone.classList.remove('hidden');
         return;
     }
     const card = swipeReviewQueue[swipeReviewIndex];
-    els.swipeReviewProgress.textContent = `${swipeReviewIndex + 1} / ${swipeReviewQueue.length}`;
+    els.swipeProgress.textContent = `${swipeReviewIndex + 1} / ${swipeReviewQueue.length}`;
     els.srCategory.textContent = card.category || '未分类';
     els.srTitle.textContent = card.title || '';
     els.srCore.textContent = card.core_point || card.summary || '';
     els.srPoints.innerHTML = safeList(card.key_points).map(p => `<li>${escapeHTML(p)}</li>`).join('');
-    els.swipeReviewCard.style.display = '';
-    els.swipeReviewCard.style.transform = '';
-    els.swipeReviewCard.style.opacity = '1';
-    els.swipeReviewCard.classList.remove('swiping-left', 'swiping-right', 'fly-left', 'fly-right');
-    els.swipeReviewStatus.textContent = '';
+    els.swipeCard.style.transform = '';
+    els.swipeCard.style.opacity = '1';
+    els.swipeCard.classList.remove('swiping-left', 'swiping-right');
+    els.swipeArrowLeft.style.opacity = '0';
+    els.swipeArrowRight.style.opacity = '0';
     refreshIcons();
 }
 
 function bindSwipeReviewGestures() {
-    const scene = els.swipeReviewScene;
-    const card = els.swipeReviewCard;
+    const scene = els.swipeScene;
+    const card = els.swipeCard;
+    const arrowL = els.swipeArrowLeft;
+    const arrowR = els.swipeArrowRight;
     let startX = 0, startY = 0, dx = 0, dragging = false;
+    let dirLock = null;
 
     scene.addEventListener('pointerdown', (e) => {
         startX = e.clientX;
         startY = e.clientY;
         dx = 0;
         dragging = true;
+        dirLock = null;
         card.style.transition = 'none';
         scene.setPointerCapture?.(e.pointerId);
     });
@@ -835,47 +854,79 @@ function bindSwipeReviewGestures() {
         if (!dragging) return;
         dx = e.clientX - startX;
         const dy = e.clientY - startY;
-        if (Math.abs(dy) > Math.abs(dx) * 1.5) return; // 纵向滑动为主则忽略
-        const rotate = dx * 0.05;
+        if (!dirLock && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) {
+            dirLock = Math.abs(dx) >= Math.abs(dy) ? 'h' : 'v';
+        }
+        if (dirLock === 'v') return;
+        e.preventDefault();
+
+        const rotate = dx * 0.04;
+        const fade = 1 - Math.abs(dx) / 500;
         card.style.transform = `translateX(${dx}px) rotate(${rotate}deg)`;
-        card.classList.toggle('swiping-right', dx > 40);
-        card.classList.toggle('swiping-left', dx < -40);
+        card.style.opacity = Math.max(0.5, fade);
+
+        // 箭头提示
+        const progress = Math.min(1, Math.abs(dx) / 80);
+        if (dx < -20) {
+            arrowL.style.opacity = progress;
+            arrowR.style.opacity = '0';
+            card.classList.add('swiping-left');
+            card.classList.remove('swiping-right');
+        } else if (dx > 20) {
+            arrowR.style.opacity = progress;
+            arrowL.style.opacity = '0';
+            card.classList.add('swiping-right');
+            card.classList.remove('swiping-left');
+        } else {
+            arrowL.style.opacity = '0';
+            arrowR.style.opacity = '0';
+            card.classList.remove('swiping-left', 'swiping-right');
+        }
     });
 
     scene.addEventListener('pointerup', () => {
         if (!dragging) return;
         dragging = false;
-        card.style.transition = '';
+        arrowL.style.opacity = '0';
+        arrowR.style.opacity = '0';
         card.classList.remove('swiping-left', 'swiping-right');
 
-        if (dx > 80) {
-            // 右滑 → 记住了
-            card.classList.add('fly-right');
+        if (dx < -60) {
+            // 左滑 → 理解
+            swipeUnderstood++;
+            card.style.transition = 'transform 0.3s cubic-bezier(0.4,0,0.2,1), opacity 0.3s ease';
+            card.style.transform = 'translateX(-110%) rotate(-10deg)';
+            card.style.opacity = '0';
             setTimeout(() => {
-                card.classList.remove('fly-right');
+                card.style.transition = '';
                 swipeReviewIndex++;
                 renderSwipeReviewCard();
-            }, 300);
-        } else if (dx < -80) {
-            // 左滑 → 跳过
-            card.classList.add('fly-left');
+            }, 320);
+        } else if (dx > 60) {
+            // 右滑 → 没理解，也进入下一张
+            swipeConfused++;
+            card.style.transition = 'transform 0.3s cubic-bezier(0.4,0,0.2,1), opacity 0.3s ease';
+            card.style.transform = 'translateX(110%) rotate(10deg)';
+            card.style.opacity = '0';
             setTimeout(() => {
-                card.classList.remove('fly-left');
-                // 跳过的卡片放到队尾
-                const skipped = swipeReviewQueue.splice(swipeReviewIndex, 1)[0];
-                swipeReviewQueue.push(skipped);
+                card.style.transition = '';
+                swipeReviewIndex++;
                 renderSwipeReviewCard();
-            }, 300);
+            }, 320);
         } else {
-            // 没滑够，回弹
+            card.style.transition = 'transform 0.35s cubic-bezier(0.2,0.8,0.3,1), opacity 0.35s ease';
             card.style.transform = '';
+            card.style.opacity = '1';
         }
     });
 
     scene.addEventListener('pointercancel', () => {
         dragging = false;
-        card.style.transition = '';
+        arrowL.style.opacity = '0';
+        arrowR.style.opacity = '0';
+        card.style.transition = 'transform 0.3s ease, opacity 0.3s ease';
         card.style.transform = '';
+        card.style.opacity = '1';
         card.classList.remove('swiping-left', 'swiping-right');
     });
 }

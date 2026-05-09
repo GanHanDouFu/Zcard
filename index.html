@@ -25,9 +25,6 @@
                 </div>
             </div>
             <div class="header-actions">
-                <button id="btn-flashcard" class="btn btn-secondary">
-                    <i data-lucide="layers"></i> 复习模式
-                </button>
                 <button id="btn-settings" class="btn btn-icon" title="设置 API Key">
                     <i data-lucide="settings"></i>
                 </button>
@@ -51,26 +48,49 @@
             </section>
 
             <!-- 左右滑动复习弹窗 -->
-            <div id="swipe-review-modal" class="modal hidden">
-                <div class="swipe-review-container">
-                    <button class="close-btn swipe-review-close" id="btn-close-swipe-review"><i data-lucide="x"></i></button>
-                    <div class="swipe-review-header">
-                        <h3>复习模式</h3>
-                        <span id="swipe-review-progress" class="progress">1 / 5</span>
+            <div id="swipe-review-modal" class="swipe-modal hidden">
+                <div class="swipe-modal-glass"></div>
+                <button class="swipe-close" id="btn-close-swipe-review"><i data-lucide="x"></i></button>
+
+                <div class="swipe-wrap">
+                    <div class="swipe-head">
+                        <span class="swipe-head-title">知识复习</span>
+                        <span class="swipe-head-count" id="swipe-review-progress">1 / 5</span>
                     </div>
-                    <div class="swipe-review-scene" id="swipe-review-scene">
-                        <div class="swipe-review-card" id="swipe-review-card">
-                            <span class="card-badge" id="sr-category">领域</span>
-                            <h2 id="sr-title">卡片标题</h2>
-                            <p id="sr-core">核心观点</p>
-                            <ul id="sr-points"></ul>
-                            <div class="swipe-review-hint">
-                                <span>← 跳过</span>
-                                <span>记住了 →</span>
-                            </div>
+
+                    <div class="swipe-scene" id="swipe-review-scene">
+                        <div class="swipe-card" id="swipe-review-card">
+                            <div class="swipe-tag" id="sr-category">领域</div>
+                            <h2 class="swipe-card-title" id="sr-title">卡片标题</h2>
+                            <p class="swipe-card-core" id="sr-core">核心观点</p>
+                            <ul class="swipe-card-points" id="sr-points"></ul>
+                        </div>
+                        <div class="swipe-arrow swipe-arrow-left" id="swipe-arrow-left">
+                            <span class="swipe-arrow-icon">←</span>
+                            <span class="swipe-arrow-text">理解</span>
+                        </div>
+                        <div class="swipe-arrow swipe-arrow-right" id="swipe-arrow-right">
+                            <span class="swipe-arrow-text">没理解</span>
+                            <span class="swipe-arrow-icon">→</span>
                         </div>
                     </div>
-                    <div class="swipe-review-status" id="swipe-review-status"></div>
+
+                    <div class="swipe-done hidden" id="swipe-done">
+                        <div class="swipe-done-icon">✓</div>
+                        <div class="swipe-done-text">复习完成</div>
+                        <div class="swipe-done-stats">
+                            <div class="swipe-stat">
+                                <span class="swipe-stat-num" id="swipe-stat-understood">0</span>
+                                <span class="swipe-stat-label">理解</span>
+                            </div>
+                            <div class="swipe-stat-divider"></div>
+                            <div class="swipe-stat">
+                                <span class="swipe-stat-num" id="swipe-stat-confused">0</span>
+                                <span class="swipe-stat-label">没理解</span>
+                            </div>
+                        </div>
+                        <button class="swipe-done-btn" id="btn-swipe-done-close">完成</button>
+                    </div>
                 </div>
             </div>
 
