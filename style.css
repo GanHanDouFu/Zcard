@@ -158,8 +158,9 @@ a:hover {
 
 /* 4. 页面结构 */
 .header {
-    background-color: var(--color-bg);
-    padding: var(--space-md) var(--space-xl);
+    background-color: rgba(249, 248, 246, 0.94);
+    backdrop-filter: blur(14px);
+    padding: 18px clamp(24px, 5vw, 72px);
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -184,7 +185,7 @@ a:hover {
 .logo-text h1 {
     font-size: 20px;
     line-height: 1.2;
-    letter-spacing: -0.02em;
+    letter-spacing: 0;
 }
 
 .slogan {
@@ -205,19 +206,20 @@ a:hover {
 }
 
 .main-content {
-    max-width: 1000px; /* Claude 风格通常居中且不太宽 */
+    max-width: 960px;
     margin: 0 auto;
-    padding: var(--space-xl) var(--space-lg);
+    padding: 40px 24px 64px;
 }
 
 /* 5. 输入区 */
 .input-section {
     background-color: var(--color-surface);
-    border-radius: var(--radius-md);
-    padding: var(--space-md);
+    border-radius: 14px;
+    padding: 18px;
     border: 1px solid var(--color-border);
-    box-shadow: var(--shadow-md);
-    margin-bottom: var(--space-xl);
+    box-shadow: 0 16px 40px -34px rgba(26, 25, 25, 0.5);
+    margin: 0 auto 26px;
+    max-width: 760px;
     position: relative;
     transition: border-color 0.3s;
 }
@@ -235,7 +237,8 @@ a:hover {
 textarea {
     width: 100%;
     border: none;
-    padding: var(--space-xs);
+    min-height: 118px;
+    padding: 8px;
     font-family: var(--font-sans);
     font-size: 15px;
     resize: vertical;
@@ -254,7 +257,8 @@ textarea::placeholder {
 .input-wrapper .btn-primary {
     align-self: flex-end;
     border-radius: var(--radius-pill);
-    padding: 8px 20px;
+    min-height: 44px;
+    padding: 9px 22px;
 }
 
 /* 加载动画 */
@@ -295,7 +299,8 @@ textarea::placeholder {
     align-items: center;
     flex-wrap: wrap;
     gap: var(--space-md);
-    margin-bottom: var(--space-lg);
+    max-width: 760px;
+    margin: 0 auto 24px;
 }
 
 .categories {
@@ -316,6 +321,7 @@ textarea::placeholder {
     display: inline-flex;
     align-items: center;
     gap: 4px;
+    white-space: nowrap;
 }
 
 .category-tag:hover {
@@ -336,7 +342,7 @@ textarea::placeholder {
 
 .search-box {
     position: relative;
-    width: 240px;
+    width: 260px;
 }
 
 .search-icon {
@@ -391,17 +397,23 @@ textarea::placeholder {
 /* 8. 卡片展示区 */
 .cards-container {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-    gap: var(--space-lg);
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 18px;
+    max-width: 760px;
+    margin: 0 auto;
 }
 
 .empty-state {
     grid-column: 1 / -1;
     text-align: center;
-    padding: 80px 20px;
+    padding: 88px 24px;
+    min-height: 320px;
     color: var(--color-text-muted);
     font-family: var(--font-serif);
     font-style: italic;
+    border: 1px dashed var(--color-border);
+    border-radius: 18px;
+    background-color: rgba(255, 255, 255, 0.48);
 }
 
 .empty-icon {
@@ -422,6 +434,7 @@ textarea::placeholder {
     cursor: pointer;
     display: flex;
     flex-direction: column;
+    min-height: 150px;
 }
 
 .knowledge-card:hover {
@@ -911,6 +924,7 @@ textarea::placeholder {
         border-color: var(--color-border);
         box-shadow: 0 8px 28px -24px rgba(26, 25, 25, 0.45);
         background-color: var(--color-surface);
+        max-width: none;
     }
 
     .input-section:focus-within {
@@ -946,6 +960,7 @@ textarea::placeholder {
         align-items: stretch;
         gap: 10px;
         margin-bottom: 12px;
+        max-width: none;
     }
 
     .categories {
@@ -1021,6 +1036,8 @@ textarea::placeholder {
     .cards-container {
         grid-template-columns: 1fr;
         gap: 12px;
+        max-width: none;
+        margin: 0;
     }
 
     .knowledge-card {
