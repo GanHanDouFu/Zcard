@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zcard - 让每一条视频都变成你的知识</title>
+    <link rel="stylesheet" href="style.css">
+    <!-- 引入 Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- 引入 html2canvas 用于导出图片 -->
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+</head>
+<body>
+    <!-- 顶部导航栏 -->
+    <header class="header">
+        <div class="logo-container">
+            <i data-lucide="book-open" class="logo-icon"></i>
+            <div class="logo-text">
+                <h1>Zcard</h1>
+                <p class="slogan">让每一条视频都变成你的知识</p>
+            </div>
+        </div>
+        <div class="header-actions">
+            <button id="btn-flashcard" class="btn btn-secondary">
+                <i data-lucide="layers"></i> 复习模式
+            </button>
+            <button id="btn-settings" class="btn btn-icon" title="设置 API Key">
+                <i data-lucide="settings"></i>
+            </button>
+        </div>
+    </header>
+
+    <main class="main-content">
+        <!-- 输入区 -->
+        <section class="input-section">
+            <div class="input-wrapper">
+                <textarea id="video-input" placeholder="粘贴抖音视频文案或链接到这里..." rows="3"></textarea>
+                <button id="btn-generate" class="btn btn-primary">
+                    <i data-lucide="sparkles"></i> 生成知识卡片
+                </button>
+            </div>
+            <div id="loading-indicator" class="loading hidden">
+                <div class="spinner"></div>
+                <span>AI 正在为您提炼知识...</span>
+            </div>
+        </section>
+
+        <!-- 工具栏：分类与搜索 -->
+        <section class="toolbar">
+            <div class="categories" id="category-list">
+                <button class="category-tag active" data-category="全部">全部</button>
+                <button class="category-tag" data-category="待办">
+                    <i data-lucide="check-circle" class="sm-icon"></i> 待办
+                </button>
+                <button class="category-tag" data-category="生活">生活</button>
+                <button class="category-tag" data-category="职场">职场</button>
+                <button class="category-tag" data-category="学习">学习</button>
+                <button class="category-tag" data-category="娱乐">娱乐</button>
+                <button class="category-tag" data-category="财经">财经</button>
+                <button class="category-tag" data-category="健康">健康</button>
+                <button class="category-tag" data-category="科技">科技</button>
+            </div>
+
+            <div class="search-actions">
+                <div class="search-box">
+                    <i data-lucide="search" class="search-icon"></i>
+                    <input type="text" id="search-input" placeholder="在【全部】中搜索...">
+                </div>
+            </div>
+        </section>
+
+        <!-- 批量操作栏（默认隐藏） -->
+        <section id="batch-actions" class="batch-actions hidden">
+            <span class="selected-count">已选择 <strong id="selected-num">0</strong> 张卡片</span>
+            <div class="batch-btns">
+                <button id="btn-integrate" class="btn btn-primary">
+                    <i data-lucide="git-merge"></i> 整合卡片
+                </button>
+                <button id="btn-export" class="btn btn-secondary">
+                    <i data-lucide="image"></i> 导出图片
+                </button>
+                <button id="btn-cancel-select" class="btn btn-text">取消选择</button>
+            </div>
+        </section>
+
+        <!-- 卡片展示区 -->
+        <section class="cards-container" id="cards-container">
+            <!-- 卡片将通过 JS 动态生成 -->
+            <div class="empty-state hidden" id="empty-state">
+                <i data-lucide="inbox" class="empty-icon"></i>
+                <p>还没有知识卡片，快去粘贴文案生成一张吧！</p>
+            </div>
+        </section>
+    </main>
+
+    <!-- 卡片详情弹窗 -->
+    <div id="card-modal" class="modal hidden">
+        <div class="modal-content">
+            <button class="close-btn" id="btn-close-modal"><i data-lucide="x"></i></button>
+            <div id="modal-card-body" class="card-detail-body">
+                <!-- 详情内容动态填充 -->
+            </div>
+            <div class="modal-footer">
+                <a id="modal-source-link" href="#" target="_blank" class="btn btn-text hidden">
+                    <i data-lucide="external-link"></i> 原视频链接
+                </a>
+                <button id="btn-add-todo" class="btn btn-secondary">
+                    <i data-lucide="list-todo"></i> 加入待办
+                </button>
+                <button id="btn-delete-card" class="btn btn-danger">
+                    <i data-lucide="trash-2"></i> 删除
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 闪卡复习弹窗 -->
+    <div id="flashcard-modal" class="modal hidden">
+        <div class="modal-content flashcard-container">
+            <button class="close-btn" id="btn-close-flashcard"><i data-lucide="x"></i></button>
+            <div class="flashcard-header">
+                <h3>知识复习</h3>
+                <span id="flashcard-progress" class="progress">1 / 5</span>
+            </div>
+            <div class="flashcard-scene" id="flashcard-scene">
+                <div class="flashcard" id="flashcard-element">
+                    <!-- 正面 -->
+                    <div class="flashcard-face flashcard-front">
+                        <span class="category-badge" id="fc-category">领域</span>
+                        <h2 id="fc-title">卡片标题</h2>
+                        <p class="flip-hint"><i data-lucide="rotate-cw"></i> 点击翻转</p>
+                    </div>
+                    <!-- 反面 -->
+                    <div class="flashcard-face flashcard-back">
+                        <div class="fc-content">
+                            <p class="fc-core" id="fc-core">核心观点</p>
+                            <ul class="fc-points" id="fc-points"></ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="flashcard-actions hidden" id="flashcard-actions">
+                <button id="btn-fc-forget" class="btn btn-warning">没记住</button>
+                <button id="btn-fc-remember" class="btn btn-success">记住了</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 设置弹窗 -->
+    <div id="settings-modal" class="modal hidden">
+        <div class="modal-content settings-content">
+            <button class="close-btn" id="btn-close-settings"><i data-lucide="x"></i></button>
+            <h2>设置</h2>
+            <div class="settings-form">
+                <label for="api-key-input">DeepSeek API Key</label>
+                <input type="password" id="api-key-input" placeholder="sk-...">
+                <p class="help-text">您的 API Key 仅保存在本地浏览器中，不会上传至任何服务器。</p>
+            </div>
+            <div class="modal-footer">
+                <button id="btn-save-settings" class="btn btn-primary">保存设置</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 用于导出图片的隐藏容器 -->
+    <div id="export-container" class="export-container hidden"></div>
+
+    <script src="script.js"></script>
+</body>
+</html>
