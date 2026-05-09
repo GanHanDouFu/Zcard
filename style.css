@@ -800,7 +800,7 @@ textarea::placeholder {
     body {
         width: 100%;
         height: 100%;
-        background: #e9e9e7;
+        background: #f7f7f7;
         overflow-x: hidden;
     }
 
@@ -809,17 +809,16 @@ textarea::placeholder {
     }
 
     .app-shell {
-        width: min(100vw, 414px);
+        width: 100%;
+        max-width: 430px;
         height: 100svh;
-        min-height: 620px;
         margin: 0 auto;
         background-color: #f7f7f7;
         display: grid;
         grid-template-rows: auto auto 1fr auto;
         overflow: hidden;
-        border-left: 1px solid rgba(26, 25, 25, 0.08);
-        border-right: 1px solid rgba(26, 25, 25, 0.08);
-        box-shadow: 0 24px 80px -44px rgba(26, 25, 25, 0.45);
+        border: 0;
+        box-shadow: none;
     }
 
     .wx-status-bar {
@@ -940,7 +939,7 @@ textarea::placeholder {
         width: 100%;
         max-width: none;
         margin: 0;
-        padding: 10px 12px 92px;
+        padding: 8px 12px 88px;
         overflow-y: auto;
         min-height: 0;
         -webkit-overflow-scrolling: touch;
@@ -949,11 +948,15 @@ textarea::placeholder {
 
     .input-section {
         padding: 12px;
-        margin-bottom: 14px;
-        border-radius: 12px;
-        border-color: #eeeeee;
+        margin-bottom: 12px;
+        border-radius: 16px;
+        border-color: transparent;
         box-shadow: none;
         background-color: #ffffff;
+    }
+
+    .input-section:focus-within {
+        border-color: #9be3bb;
     }
 
     .input-wrapper {
@@ -961,7 +964,7 @@ textarea::placeholder {
     }
 
     textarea {
-        min-height: 118px;
+        min-height: 82px;
         padding: 4px 2px;
         font-size: 15px;
         line-height: 1.55;
@@ -970,23 +973,28 @@ textarea::placeholder {
     .input-wrapper .btn-primary {
         width: 100%;
         min-height: 44px;
-        border-radius: 10px;
+        border-radius: 12px;
         font-size: 15px;
         background-color: #07c160;
+    }
+
+    .input-wrapper .btn-primary:hover {
+        background-color: #06ad56;
+        transform: none;
     }
     
     .toolbar {
         flex-direction: column;
         align-items: stretch;
-        gap: 12px;
-        margin-bottom: 18px;
+        gap: 10px;
+        margin-bottom: 12px;
     }
 
     .categories {
         flex-wrap: nowrap;
         gap: 8px;
         overflow-x: auto;
-        padding: 2px 0 8px;
+        padding: 2px 0 4px;
         scrollbar-width: none;
         -webkit-overflow-scrolling: touch;
     }
@@ -997,7 +1005,7 @@ textarea::placeholder {
 
     .category-tag {
         flex: 0 0 auto;
-        padding: 7px 13px;
+        padding: 6px 13px;
         background-color: #ffffff;
         font-size: 13px;
         box-shadow: none;
@@ -1015,10 +1023,21 @@ textarea::placeholder {
     }
 
     .search-box input {
-        height: 42px;
+        height: 40px;
         border-radius: 10px;
         background-color: #ffffff;
         border-color: #eeeeee;
+        box-shadow: none;
+        color: #1f1f1f;
+    }
+
+    .search-box input::placeholder {
+        color: #9a9a9a;
+    }
+
+    .search-box input:focus {
+        border-color: #9be3bb;
+        background-color: #ffffff;
     }
     
     .batch-actions {
@@ -1049,7 +1068,7 @@ textarea::placeholder {
     .knowledge-card {
         border-radius: 12px;
         padding: 14px;
-        min-height: 126px;
+        min-height: 118px;
         border-color: #eeeeee;
         box-shadow: none;
         background-color: #ffffff;
@@ -1063,30 +1082,63 @@ textarea::placeholder {
         font-family: var(--font-sans);
         font-size: 16px;
         font-weight: 700;
+        color: #111111;
     }
 
     .card-core {
         font-size: 13px;
         -webkit-line-clamp: 3;
+        color: #555555;
+    }
+
+    .card-badge {
+        background-color: #f6f6f6;
+        border-color: #eeeeee;
+        color: #666666;
+    }
+
+    .knowledge-card.integrated {
+        background-color: #ffffff;
+        border-color: #d9f2e4;
+    }
+
+    .knowledge-card.integrated .card-badge {
+        background-color: #07c160;
+        border-color: #07c160;
+        color: #ffffff;
+    }
+
+    .card-footer {
+        color: #9a9a9a;
     }
 
     .empty-state {
-        padding: 80px 24px;
-        min-height: 260px;
+        padding: 58px 24px;
+        min-height: 220px;
         display: flex;
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        border: 1px dashed var(--color-border);
-        border-radius: 18px;
+        border: 1px dashed #e6e6e6;
+        border-radius: 16px;
         background-color: #ffffff;
+    }
+
+    .empty-state p {
+        max-width: 240px;
+        font-size: 14px;
+        line-height: 1.7;
+    }
+
+    .empty-icon {
+        color: #d8d8d8;
     }
 
     .bottom-nav {
         display: grid;
         grid-template-columns: repeat(4, 1fr);
         gap: 0;
-        padding: 5px 8px calc(5px + env(safe-area-inset-bottom));
+        padding: 4px 8px calc(4px + env(safe-area-inset-bottom));
         background-color: #ffffff;
         border-top: 1px solid #eeeeee;
         backdrop-filter: none;
@@ -1094,7 +1146,7 @@ textarea::placeholder {
     }
 
     .bottom-nav-item {
-        height: 54px;
+        height: 50px;
         border: 0;
         border-radius: 0;
         background: transparent;
@@ -1120,6 +1172,18 @@ textarea::placeholder {
         background-color: transparent;
     }
 
+    .bottom-nav-item span {
+        line-height: 1;
+    }
+
+    .bottom-nav-item.active i {
+        stroke-width: 2.4;
+    }
+
+    .bottom-nav-item.active span {
+        font-weight: 700;
+    }
+
     .modal {
         align-items: flex-end;
         padding: 0;
@@ -1130,6 +1194,7 @@ textarea::placeholder {
         max-width: none;
         max-height: 92vh;
         border-radius: 18px 18px 0 0;
+        background-color: #ffffff;
     }
 
     .card-detail-body,
@@ -1147,6 +1212,7 @@ textarea::placeholder {
     .modal-footer {
         padding: 12px 18px 18px;
         flex-wrap: wrap;
+        background-color: #f7f7f7;
     }
 
     .modal-footer .btn {
@@ -1170,6 +1236,7 @@ textarea::placeholder {
         font-family: var(--font-sans);
         font-size: 26px;
         font-weight: 700;
+        color: #111111;
     }
 
     .flashcard-actions {
