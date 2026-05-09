@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zcard - 测试页面</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            background-color: #f9f8f6;
+        }
+        .card {
+            background: white;
+            padding: 16px;
+            margin: 10px 0;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .card h3 {
+            margin: 0 0 8px 0;
+            color: #1a1919;
+        }
+        .card p {
+            margin: 0;
+            color: #4d4b46;
+        }
+        .badge {
+            display: inline-block;
+            background: #d97757;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+        #debug {
+            background: #333;
+            color: #0f0;
+            padding: 10px;
+            font-family: monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Zcard 测试页面</h1>
+    <div id="cards"></div>
+    <div id="debug"></div>
+    
+    <script>
+        const debug = document.getElementById('debug');
+        const cardsEl = document.getElementById('cards');
+        
+        function log(msg) {
+            console.log(msg);
+            debug.textContent += msg + '\n';
+        }
+        
+        log('Script loaded');
+        log('Cards container exists: ' + (cardsEl !== null));
+        
+        // 模拟数据
+        const cards = [
+            {
+                id: '1',
+                title: '测试卡片1',
+                core_point: '这是第一个测试卡片的核心里容',
+                category: '生活'
+            },
+            {
+                id: '2',
+                title: '测试卡片2',
+                core_point: '这是第二个测试卡片的核心里容',
+                category: '科技'
+            },
+            {
+                id: '3',
+                title: '测试卡片3',
+                core_point: '这是第三个测试卡片的核心里容',
+                category: '财经'
+            }
+        ];
+        
+        log('Cards data: ' + cards.length + ' items');
+        
+        // 渲染卡片
+        cards.forEach(card => {
+            const cardEl = document.createElement('div');
+            cardEl.className = 'card';
+            cardEl.innerHTML = `
+                <span class="badge">${card.category}</span>
+                <h3>${card.title}</h3>
+                <p>${card.core_point}</p>
+            `;
+            cardsEl.appendChild(cardEl);
+            log('Rendered card: ' + card.title);
+        });
+        
+        log('Done! Total cards: ' + cards.length);
+    </script>
+</body>
+</html>
