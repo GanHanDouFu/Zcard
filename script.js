@@ -3,7 +3,7 @@
  */
 
 // 全局状态
-let cards = loadCards();
+let cards = [];
 let currentCategory = '全部';
 let currentSearch = '';
 let selectedCards = new Set();
@@ -12,12 +12,22 @@ let currentFlashcardIndex = 0;
 let currentActionCardId = null;
 let currentReviewCardId = null;
 let isEditingCard = false;
+let reviewRevealTimer = null;
 
 // API 配置
 const API_URL = 'https://api.deepseek.com/chat/completions';
 const PROXY_API_URL = '/api/deepseek';
 const DEFAULT_DEMO_API_KEY = 'sk-4591f6e3f254426abe448bfc21e6d86d';
 let API_KEY = sessionStorage.getItem('deepseek_api_key') || DEFAULT_DEMO_API_KEY;
+const TEXT_STYLE_DEFAULTS = {
+    title: { fontSize: '16px', color: '#1f1f1d' },
+    core_point: { fontSize: '16px', color: '#1f1f1d' },
+    key_points: { fontSize: '16px', color: '#1f1f1d' },
+    quote: { fontSize: '16px', color: '#6f6b65' },
+    action: { fontSize: '16px', color: '#1f1f1d' },
+    note: { fontSize: '16px', color: '#1f1f1d' }
+};
+cards = loadCards();
 
 function refreshIcons() {
     if (window.lucide && typeof window.lucide.createIcons === 'function') {
@@ -48,10 +58,31 @@ function safeUrl(value) {
     }
 }
 
+function normalizeCard(card) {
+    if (!card.customStyles || typeof card.customStyles !== 'object') {
+        card.customStyles = {};
+    }
+    Object.keys(TEXT_STYLE_DEFAULTS).forEach((key) => {
+        card.customStyles[key] = {
+            ...TEXT_STYLE_DEFAULTS[key],
+            ...(card.customStyles[key] || {})
+        };
+    });
+    if (typeof card.isGot !== 'boolean') {
+        card.isGot = false;
+    }
+    return card;
+}
+
+function styleAttr(card, field) {
+    const styles = normalizeCard(card).customStyles[field] || TEXT_STYLE_DEFAULTS[field];
+    return `style="font-size:${escapeHTML(styles.fontSize)};color:${escapeHTML(styles.color)}"`;
+}
+
 function loadCards() {
     try {
         const parsed = JSON.parse(localStorage.getItem('douyin_cards') || '[]');
-        return Array.isArray(parsed) ? parsed : [];
+        return Array.isArray(parsed) ? parsed.map(normalizeCard) : [];
     } catch (error) {
         console.warn('本地卡片数据损坏，已重置为空列表。', error);
         localStorage.removeItem('douyin_cards');
@@ -99,8 +130,6 @@ const els = {
     btnEditCard: document.getElementById('btn-edit-card'),
     btnSaveCard: document.getElementById('btn-save-card'),
     btnCancelEdit: document.getElementById('btn-cancel-edit'),
-    btnOpenNotebook: document.getElementById('btn-open-notebook'),
-    modalSourceLink: document.getElementById('modal-source-link'),
     notebookModal: document.getElementById('notebook-modal'),
     btnCloseNotebook: document.getElementById('btn-close-notebook'),
     notebookInput: document.getElementById('notebook-input'),
@@ -204,7 +233,7 @@ function bindEvents() {
         }
     });
     
-    els.btnAddTodo.addEventListener('click', handleAddTodo);
+    els.btnAddTodo.addEventListener('click', handleGetCard);
     els.btnEditCard.addEventListener('click', () => {
         const card = cards.find(c => c.id === currentViewCardId);
         if (card) openCardDetail(card, true);
@@ -214,9 +243,15 @@ function bindEvents() {
         if (card) openCardDetail(card, false);
     });
     els.btnSaveCard.addEventListener('click', saveEditedCard);
-    els.btnOpenNotebook.addEventListener('click', openNotebook);
-    els.btnCloseNotebook.addEventListener('click', () => els.notebookModal.classList.add('hidden'));
-    els.btnSaveNotebook.addEventListener('click', saveNotebook);
+    if (els.btnOpenNotebook) {
+        els.btnOpenNotebook.addEventListener('click', openNotebook);
+    }
+    if (els.btnCloseNotebook) {
+        els.btnCloseNotebook.addEventListener('click', () => els.notebookModal.classList.add('hidden'));
+    }
+    if (els.btnSaveNotebook) {
+        els.btnSaveNotebook.addEventListener('click', saveNotebook);
+    }
 
     els.btnActionCancel.addEventListener('click', () => els.actionModal.classList.add('hidden'));
     els.btnActionDetail.addEventListener('click', () => {
@@ -273,9 +308,21 @@ function bindEvents() {
                 document.getElementById('compose-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
                 els.videoInput.focus({ preventScroll: true });
             } else if (action === 'cards') {
+                currentCategory = '全部';
+                document.querySelectorAll('.category-tag').forEach(el => {
+                    el.classList.toggle('active', el.dataset.category === '全部');
+                });
+                els.searchInput.placeholder = '在【全部】中搜索...';
+                renderCards();
                 els.cardsContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
             } else if (action === 'review') {
-                startFlashcardMode();
+                currentCategory = '复习';
+                document.querySelectorAll('.category-tag').forEach(el => {
+                    el.classList.toggle('active', el.dataset.category === '复习');
+                });
+                els.searchInput.placeholder = '在【复习】中搜索...';
+                renderCards();
+                els.cardsContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
             } else if (action === 'settings') {
                 els.apiKeyInput.value = API_KEY;
                 els.settingsModal.classList.remove('hidden');
@@ -289,8 +336,8 @@ function renderCards() {
     let filtered = cards;
     
     // 1. 分类过滤
-    if (currentCategory === '待办') {
-        filtered = filtered.filter(c => c.is_todo);
+    if (currentCategory === '复习') {
+        filtered = filtered.filter(c => c.isGot);
     } else if (currentCategory !== '全部') {
         filtered = filtered.filter(c => c.category === currentCategory && !c.is_todo);
     }
@@ -308,7 +355,8 @@ function renderCards() {
     
     filtered.forEach(card => {
         const cardEl = document.createElement('div');
-        cardEl.className = `knowledge-card ${card.is_integrated ? 'integrated' : ''} ${card.is_todo && card.todo_status === '已完成' ? 'todo-completed' : ''}`;
+        normalizeCard(card);
+        cardEl.className = `knowledge-card ${card.is_integrated ? 'integrated' : ''} ${card.isGot ? 'got-card' : ''} ${card.is_todo && card.todo_status === '已完成' ? 'todo-completed' : ''}`;
         const canIntegrate = getSameCategoryCards(card).length >= 2 && !card.is_integrated;
         
         // 阻止复选框点击事件冒泡到卡片
@@ -317,20 +365,21 @@ function renderCards() {
         cardEl.innerHTML = `
             <div class="card-header">
                 <span class="card-badge">${escapeHTML(card.is_integrated ? '整合' : (card.is_todo ? '待办' : card.category))}</span>
+                ${card.isGot ? '<span class="got-star" title="已Get">⭐</span>' : ''}
                 ${checkboxHtml}
             </div>
-            <h3 class="card-title">${escapeHTML(card.title)}</h3>
-            <p class="card-core">${escapeHTML(card.core_point || card.summary || '')}</p>
+            <h3 class="card-title" ${styleAttr(card, 'title')}>${escapeHTML(card.title)}</h3>
+            <p class="card-core" ${styleAttr(card, 'core_point')}>${escapeHTML(card.core_point || card.summary || '')}</p>
             <div class="card-footer">
                 <span>${escapeHTML(card.created_at)}</span>
                 ${canIntegrate ? '<span class="merge-hint">可整合</span>' : ''}
-                ${card.is_todo ? `<button class="btn btn-text btn-toggle-todo" data-id="${escapeHTML(card.id)}">${card.todo_status === '已完成' ? '撤销' : '完成'}</button>` : ''}
+                ${currentCategory === '复习' ? `<button class="btn btn-text btn-toggle-got" data-id="${escapeHTML(card.id)}">取消Get</button>` : ''}
             </div>
         `;
         
         // 卡片点击事件 (打开详情)
         cardEl.addEventListener('click', (e) => {
-            if (e.target.classList.contains('card-checkbox') || e.target.classList.contains('btn-toggle-todo')) return;
+            if (e.target.classList.contains('card-checkbox') || e.target.classList.contains('btn-toggle-got')) return;
             openCardActions(card);
         });
         
@@ -345,13 +394,14 @@ function renderCards() {
             updateBatchActions();
         });
         
-        // 待办完成切换
-        const todoBtn = cardEl.querySelector('.btn-toggle-todo');
-        if (todoBtn) {
-            todoBtn.addEventListener('click', () => {
-                card.todo_status = card.todo_status === '已完成' ? '未完成' : '已完成';
+        const gotBtn = cardEl.querySelector('.btn-toggle-got');
+        if (gotBtn) {
+            gotBtn.addEventListener('click', () => {
+                card.isGot = false;
+                card.gotAt = '';
                 saveCards();
                 renderCards();
+                renderDailyReview();
             });
         }
         
@@ -398,13 +448,15 @@ function closeSearchResults() {
 }
 
 function renderResultCardHTML(card) {
+    normalizeCard(card);
     return `
-        <article class="knowledge-card search-result-card" data-id="${escapeHTML(card.id)}">
+        <article class="knowledge-card search-result-card ${card.isGot ? 'got-card' : ''}" data-id="${escapeHTML(card.id)}">
             <div class="card-header">
                 <span class="card-badge">${escapeHTML(card.category || '未分类')}</span>
+                ${card.isGot ? '<span class="got-star" title="已Get">⭐</span>' : ''}
             </div>
-            <h3 class="card-title">${escapeHTML(card.title)}</h3>
-            <p class="card-core">${escapeHTML(card.core_point || card.summary || '')}</p>
+            <h3 class="card-title" ${styleAttr(card, 'title')}>${escapeHTML(card.title)}</h3>
+            <p class="card-core" ${styleAttr(card, 'core_point')}>${escapeHTML(card.core_point || card.summary || '')}</p>
         </article>
     `;
 }
@@ -439,10 +491,20 @@ function todayKey() {
 
 function renderDailyReview() {
     const today = todayKey();
-    const available = cards.filter(card => !card.is_todo && !card.is_integrated && card.reviewed_on !== today);
+    const gotCards = cards.filter(card => card.isGot && !card.is_integrated);
+    const available = gotCards.filter(card => card.reviewed_on !== today);
     if (available.length === 0) {
         currentReviewCardId = null;
-        els.reviewSection.classList.add('hidden');
+        els.reviewTitle.textContent = gotCards.length
+            ? '今日复习完成'
+            : '还没有Get任何卡片';
+        els.reviewCore.textContent = gotCards.length
+            ? '今天加入复习池的卡片都已经复习过了。'
+            : '去详情页点击 Get it，把重要卡片加入复习池吧！';
+        els.btnReviewDo.classList.add('hidden');
+        els.btnReviewSkip.classList.add('hidden');
+        els.reviewCard.classList.remove('shattering', 'reviewing');
+        els.reviewSection.classList.remove('hidden');
         return;
     }
     const index = Math.floor(Math.random() * available.length);
@@ -450,21 +512,31 @@ function renderDailyReview() {
     currentReviewCardId = card.id;
     els.reviewTitle.textContent = card.title || '知识复习';
     els.reviewCore.textContent = card.core_point || card.summary || '打开一张卡片，回忆它的核心观点。';
-    els.reviewCard.classList.remove('shattering');
+    els.btnReviewDo.classList.remove('hidden');
+    els.btnReviewSkip.classList.remove('hidden');
+    els.reviewCard.classList.remove('shattering', 'reviewing');
     els.reviewSection.classList.remove('hidden');
 }
 
 function completeReviewCard(withEffect) {
     const card = cards.find(c => c.id === currentReviewCardId);
     if (!card) return;
+    window.clearTimeout(reviewRevealTimer);
     const finish = () => {
         card.reviewed_on = todayKey();
         saveCards();
         renderDailyReview();
     };
     if (withEffect) {
-        els.reviewCard.classList.add('shattering');
-        setTimeout(finish, 900);
+        els.reviewCard.classList.add('reviewing');
+        els.reviewCore.innerHTML = `
+            <strong>${escapeHTML(card.core_point || card.summary || '')}</strong>
+            <span>${safeList(card.key_points).slice(0, 3).map(escapeHTML).join(' / ')}</span>
+        `;
+        reviewRevealTimer = window.setTimeout(() => {
+            els.reviewCard.classList.add('shattering');
+            setTimeout(finish, 900);
+        }, 3000);
     } else {
         finish();
     }
@@ -483,6 +555,7 @@ function getSameCategoryCards(card) {
 function openCardDetail(card, editMode = false) {
     currentViewCardId = card.id;
     isEditingCard = editMode;
+    normalizeCard(card);
     
     let contentHtml = '';
     
@@ -493,97 +566,141 @@ function openCardDetail(card, editMode = false) {
         // 整合卡片布局
         contentHtml = `
             <span class="detail-badge">整合卡片</span>
-            <h2 class="detail-title">${escapeHTML(card.title)}</h2>
+            <h2 class="detail-title" ${styleAttr(card, 'title')}>${escapeHTML(card.title)}</h2>
             <div class="detail-section">
                 <h4>综合观点</h4>
-                <p>${escapeHTML(card.summary)}</p>
+                <p ${styleAttr(card, 'core_point')}>${escapeHTML(card.summary)}</p>
             </div>
             <div class="detail-section">
                 <h4>多角度分析</h4>
-                <ul>
+                <ul ${styleAttr(card, 'key_points')}>
                     ${safeList(card.angles).map(a => `<li>${escapeHTML(a)}</li>`).join('')}
                 </ul>
             </div>
-            <div class="quote-section">
+            <div class="quote-section" ${styleAttr(card, 'quote')}>
                 <strong>关键结论：</strong>${escapeHTML(card.conclusion)}
             </div>
-            ${card.note ? renderNoteSection(card.note) : ''}
+            ${card.note ? renderNoteSection(card.note, card) : ''}
         `;
     } else {
         // 普通卡片/待办卡片布局
         contentHtml = `
             <span class="detail-badge">${escapeHTML(card.category)}</span>
-            <h2 class="detail-title">${escapeHTML(card.title)}</h2>
+            <h2 class="detail-title" ${styleAttr(card, 'title')}>${escapeHTML(card.title)}</h2>
             <div class="detail-section">
                 <h4>核心观点</h4>
-                <p>${escapeHTML(card.core_point)}</p>
+                <p ${styleAttr(card, 'core_point')}>${escapeHTML(card.core_point)}</p>
             </div>
             <div class="detail-section">
                 <h4>关键要点</h4>
-                <ul>
+                <ul ${styleAttr(card, 'key_points')}>
                     ${safeList(card.key_points).map(p => `<li>${escapeHTML(p)}</li>`).join('')}
                 </ul>
             </div>
-            ${card.quote ? `<div class="quote-section">"${escapeHTML(card.quote)}"</div>` : ''}
+            ${card.quote ? `<div class="quote-section" ${styleAttr(card, 'quote')}>"${escapeHTML(card.quote)}"</div>` : ''}
             ${card.action ? `
             <div class="detail-section">
                 <h4>行动建议</h4>
-                <p>${escapeHTML(card.action)}</p>
+                <p ${styleAttr(card, 'action')}>${escapeHTML(card.action)}</p>
             </div>` : ''}
-            ${card.note ? renderNoteSection(card.note) : ''}
+            ${card.note ? renderNoteSection(card.note, card) : ''}
         `;
     }
     
     els.modalBody.innerHTML = contentHtml;
-    
-    // 原视频链接按钮
-    const sourceUrl = safeUrl(card.video_link);
-    if (sourceUrl) {
-        els.modalSourceLink.href = sourceUrl;
-        els.modalSourceLink.classList.remove('hidden');
-    } else {
-        els.modalSourceLink.removeAttribute('href');
-        els.modalSourceLink.classList.add('hidden');
+    if (editMode) {
+        bindEditStyleControls();
     }
     
-    // 待办按钮控制
+    // Get it 按钮控制
     if (card.is_todo || card.is_integrated) {
         els.btnAddTodo.classList.add('hidden');
     } else {
         els.btnAddTodo.classList.remove('hidden');
+        els.btnAddTodo.disabled = !!card.isGot;
+        els.btnAddTodo.innerHTML = card.isGot
+            ? '<i data-lucide="star"></i> 已Get'
+            : '<i data-lucide="sparkles"></i> Get it';
+        els.btnAddTodo.classList.toggle('is-got', !!card.isGot);
     }
 
     els.btnEditCard.classList.toggle('hidden', editMode);
-    els.btnOpenNotebook.classList.toggle('hidden', editMode);
     els.btnSaveCard.classList.toggle('hidden', !editMode);
     els.btnCancelEdit.classList.toggle('hidden', !editMode);
     els.btnDeleteCard.classList.toggle('hidden', editMode);
-    els.modalSourceLink.classList.toggle('hidden', editMode || !sourceUrl);
+    els.btnAddTodo.classList.toggle('hidden', editMode || card.is_todo || card.is_integrated);
     
     els.cardModal.classList.remove('hidden');
     refreshIcons();
 }
 
 function renderCardEditForm(card) {
+    normalizeCard(card);
     return `
         <span class="detail-badge">编辑卡片</span>
         <div class="edit-form">
-            <label>标题<input id="edit-title" value="${escapeHTML(card.title)}"></label>
+            ${renderEditField('title', '标题', 'input', card.title, card)}
             <label>领域<input id="edit-category" value="${escapeHTML(card.category || '')}"></label>
-            <label>核心观点<textarea id="edit-core">${escapeHTML(card.core_point || card.summary || '')}</textarea></label>
-            <label>关键要点<textarea id="edit-points">${escapeHTML(safeList(card.key_points).join('\n'))}</textarea></label>
-            <label>金句<textarea id="edit-quote">${escapeHTML(card.quote || '')}</textarea></label>
-            <label>行动建议<textarea id="edit-action">${escapeHTML(card.action || '')}</textarea></label>
+            ${renderEditField('core_point', '核心观点', 'textarea', card.core_point || card.summary || '', card)}
+            ${renderEditField('key_points', '关键要点', 'textarea', safeList(card.key_points).join('\n'), card)}
+            ${renderEditField('quote', '金句', 'textarea', card.quote || '', card)}
+            ${renderEditField('action', '行动建议', 'textarea', card.action || '', card)}
+            ${renderEditField('note', '自由补充', 'textarea', card.note || '', card)}
             <label>视频链接<input id="edit-link" value="${escapeHTML(card.video_link || '')}"></label>
         </div>
     `;
 }
 
-function renderNoteSection(note) {
+function renderEditField(field, label, type, value, card) {
+    const styles = card.customStyles[field] || TEXT_STYLE_DEFAULTS[field];
+    const controlId = `edit-${field}`;
+    const control = type === 'input'
+        ? `<input id="${controlId}" data-style-field="${field}" value="${escapeHTML(value)}" style="font-size:${escapeHTML(styles.fontSize)};color:${escapeHTML(styles.color)}">`
+        : `<textarea id="${controlId}" data-style-field="${field}" style="font-size:${escapeHTML(styles.fontSize)};color:${escapeHTML(styles.color)}">${escapeHTML(value)}</textarea>`;
+
+    return `
+        <label class="editable-field" data-field="${field}">
+            <span>${escapeHTML(label)}</span>
+            <div class="edit-toolbar" data-target="${field}">
+                <div class="font-tools" aria-label="字号">
+                    <button type="button" data-font-size="14px">A-</button>
+                    <button type="button" data-font-size="16px">A</button>
+                    <button type="button" data-font-size="18px">A+</button>
+                </div>
+                <div class="color-tools" aria-label="颜色">
+                    <button type="button" class="color-dot" data-color="#1f1f1d" style="--dot:#1f1f1d"></button>
+                    <button type="button" class="color-dot" data-color="#c44f45" style="--dot:#c44f45"></button>
+                    <button type="button" class="color-dot" data-color="#2563eb" style="--dot:#2563eb"></button>
+                    <button type="button" class="color-dot" data-color="#6f6b65" style="--dot:#6f6b65"></button>
+                </div>
+            </div>
+            ${control}
+        </label>
+    `;
+}
+
+function bindEditStyleControls() {
+    els.modalBody.querySelectorAll('.edit-toolbar button').forEach((button) => {
+        button.addEventListener('click', () => {
+            const toolbar = button.closest('.edit-toolbar');
+            const field = toolbar?.dataset.target;
+            const input = field ? els.modalBody.querySelector(`[data-style-field="${field}"]`) : null;
+            if (!input) return;
+            if (button.dataset.fontSize) {
+                input.style.fontSize = button.dataset.fontSize;
+            }
+            if (button.dataset.color) {
+                input.style.color = button.dataset.color;
+            }
+        });
+    });
+}
+
+function renderNoteSection(note, card = null) {
     return `
         <div class="detail-section note-section">
             <h4>记事本内容</h4>
-            <p>${escapeHTML(note)}</p>
+            <p ${card ? styleAttr(card, 'note') : ''}>${escapeHTML(note)}</p>
         </div>
     `;
 }
@@ -591,13 +708,22 @@ function renderNoteSection(note) {
 function saveEditedCard() {
     const card = cards.find(c => c.id === currentViewCardId);
     if (!card) return;
+    normalizeCard(card);
     card.title = document.getElementById('edit-title').value.trim() || card.title;
     card.category = document.getElementById('edit-category').value.trim() || '未分类';
-    card.core_point = document.getElementById('edit-core').value.trim();
-    card.key_points = document.getElementById('edit-points').value.split('\n').map(p => p.trim()).filter(Boolean);
+    card.core_point = document.getElementById('edit-core_point').value.trim();
+    card.key_points = document.getElementById('edit-key_points').value.split('\n').map(p => p.trim()).filter(Boolean);
     card.quote = document.getElementById('edit-quote').value.trim();
     card.action = document.getElementById('edit-action').value.trim();
+    card.note = document.getElementById('edit-note').value.trim();
     card.video_link = document.getElementById('edit-link').value.trim();
+    els.modalBody.querySelectorAll('[data-style-field]').forEach((input) => {
+        const field = input.dataset.styleField;
+        card.customStyles[field] = {
+            fontSize: input.style.fontSize || TEXT_STYLE_DEFAULTS[field]?.fontSize || '16px',
+            color: input.style.color || TEXT_STYLE_DEFAULTS[field]?.color || '#1f1f1d'
+        };
+    });
     saveCards();
     renderCards();
     renderDailyReview();
@@ -620,28 +746,33 @@ function saveNotebook() {
     openCardDetail(card, false);
 }
 
-// 加入待办功能
-function handleAddTodo() {
+// Get it：加入复习池
+function handleGetCard() {
     const sourceCard = cards.find(c => c.id === currentViewCardId);
     if (!sourceCard) return;
-    
-    const todoCard = {
-        id: 'todo_' + Date.now(),
-        title: `[待办] ${sourceCard.title}`,
-        core_point: sourceCard.action || sourceCard.core_point,
-        key_points: sourceCard.key_points,
-        category: sourceCard.category,
-        video_link: sourceCard.video_link,
-        created_at: new Date().toISOString().split('T')[0],
-        is_todo: true,
-        todo_status: '未完成'
-    };
-    
-    cards.unshift(todoCard);
+    sourceCard.isGot = true;
+    sourceCard.gotAt = new Date().toISOString();
     saveCards();
-    alert('已成功加入待办！');
-    els.cardModal.classList.add('hidden');
+    playGetAnimation();
     renderCards();
+    renderDailyReview();
+    openCardDetail(sourceCard, false);
+}
+
+function playGetAnimation() {
+    const target = document.querySelector('[data-mobile-action="review"]');
+    const start = els.btnAddTodo.getBoundingClientRect();
+    const end = target?.getBoundingClientRect();
+    if (!end) return;
+    const flyer = document.createElement('div');
+    flyer.className = 'get-flyer';
+    flyer.textContent = '⭐';
+    flyer.style.left = `${start.left + start.width / 2}px`;
+    flyer.style.top = `${start.top + start.height / 2}px`;
+    flyer.style.setProperty('--fly-x', `${end.left + end.width / 2 - start.left - start.width / 2}px`);
+    flyer.style.setProperty('--fly-y', `${end.top + end.height / 2 - start.top - start.height / 2}px`);
+    document.body.appendChild(flyer);
+    window.setTimeout(() => flyer.remove(), 720);
 }
 
 // 调用 API 辅助函数
@@ -727,7 +858,10 @@ function createLocalCard(text, videoLink = '') {
         action: '复盘这条内容，并补充自己的理解。',
         category: '学习',
         video_link: videoLink,
-        is_local: true
+        is_local: true,
+        isGot: false,
+        gotAt: '',
+        customStyles: {}
     };
 }
 
@@ -807,7 +941,10 @@ ${text}`;
         video_link: result.video_link || videoLink,
         created_at: new Date().toISOString().split('T')[0],
         is_todo: false,
-        is_integrated: false
+        is_integrated: false,
+        isGot: false,
+        gotAt: '',
+        customStyles: {}
     };
     
     cards.unshift(newCard);
@@ -883,6 +1020,9 @@ ${combinedContent}`;
             created_at: new Date().toISOString().split('T')[0],
             is_todo: false,
             is_integrated: true,
+            isGot: false,
+            gotAt: '',
+            customStyles: {},
             source_links: selectedCardsData.map(c => c.video_link).filter(Boolean)
         };
         
@@ -906,14 +1046,14 @@ ${combinedContent}`;
 
 // 复习闪卡模式
 function startFlashcardMode() {
-    // 过滤出当前分类下的卡片（非整合，非待办）
-    flashcardQueue = cards.filter(c => !c.is_integrated && !c.is_todo);
-    if (currentCategory !== '全部') {
+    // 只复习已 Get 的卡片
+    flashcardQueue = cards.filter(c => c.isGot && !c.is_integrated);
+    if (currentCategory !== '全部' && currentCategory !== '复习') {
         flashcardQueue = flashcardQueue.filter(c => c.category === currentCategory);
     }
     
     if (flashcardQueue.length === 0) {
-        alert('当前分类下没有可复习的卡片！');
+        alert('还没有Get任何卡片，去详情页点击 Get it 吧！');
         return;
     }
     

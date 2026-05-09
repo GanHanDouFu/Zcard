@@ -265,6 +265,21 @@ a:hover {
     margin-bottom: 14px;
 }
 
+.review-card.reviewing {
+    transform: rotateY(180deg);
+}
+
+.review-card.reviewing > * {
+    transform: rotateY(180deg);
+}
+
+.review-card p span {
+    display: block;
+    margin-top: 8px;
+    color: var(--color-text-muted);
+    font-size: 13px;
+}
+
 .review-actions {
     display: flex;
     gap: 10px;
@@ -521,6 +536,16 @@ textarea::placeholder {
     color: white;
 }
 
+.knowledge-card.got-card {
+    border-color: rgba(196, 124, 91, 0.42);
+}
+
+.got-star {
+    margin-left: auto;
+    font-size: 16px;
+    line-height: 1;
+}
+
 /* 待办完成样式 */
 .knowledge-card.todo-completed {
     opacity: 0.5;
@@ -704,10 +729,27 @@ textarea::placeholder {
 .modal-footer {
     padding: var(--space-md) var(--space-xl);
     border-top: 1px solid var(--color-border);
-    display: flex;
-    justify-content: flex-end;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: var(--space-sm);
     background-color: var(--color-bg);
+}
+
+.modal-footer .btn-danger {
+    grid-column: 1 / -1;
+}
+
+#btn-add-todo {
+    background-color: var(--color-accent);
+    border-color: var(--color-accent);
+    color: #ffffff;
+}
+
+#btn-add-todo.is-got,
+#btn-add-todo:disabled {
+    background-color: var(--color-secondary);
+    border-color: var(--color-border);
+    color: var(--color-text-muted);
 }
 
 .search-modal-content {
@@ -769,6 +811,48 @@ textarea::placeholder {
     font-weight: 600;
 }
 
+.editable-field > span {
+    color: var(--color-text-muted);
+}
+
+.edit-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 6px;
+    border: 1px solid var(--color-border);
+    border-radius: 12px;
+    background-color: var(--color-surface);
+}
+
+.font-tools,
+.color-tools {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.edit-toolbar button {
+    border: 1px solid var(--color-border);
+    background: var(--color-bg);
+    color: var(--color-text-main);
+    border-radius: 9px;
+    min-width: 32px;
+    height: 30px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.edit-toolbar .color-dot {
+    min-width: 24px;
+    width: 24px;
+    height: 24px;
+    border-radius: 999px;
+    padding: 0;
+    background: var(--dot);
+}
+
 .edit-form input,
 .edit-form textarea,
 .notebook-input {
@@ -804,6 +888,26 @@ textarea::placeholder {
     border: 1px solid var(--color-border);
     border-radius: 12px;
     padding: var(--space-md);
+}
+
+.get-flyer {
+    position: fixed;
+    z-index: 999;
+    transform: translate(-50%, -50%);
+    animation: getFly 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+    pointer-events: none;
+    font-size: 24px;
+}
+
+@keyframes getFly {
+    0% {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(1);
+    }
+    100% {
+        opacity: 0;
+        transform: translate(calc(-50% + var(--fly-x)), calc(-50% + var(--fly-y))) scale(0.35);
+    }
 }
 
 .search-clear {

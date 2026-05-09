@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <title>Zcard - 让每一条视频都变成你的知识</title>
-    <link rel="stylesheet" href="style.css?v=20260509-demo-key">
+    <link rel="stylesheet" href="style.css?v=20260509-get-review">
     <!-- 引入 Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
     <!-- 引入 html2canvas 用于导出图片 -->
@@ -68,8 +68,8 @@
             <section class="toolbar">
                 <div class="categories" id="category-list">
                     <button class="category-tag active" data-category="全部">全部</button>
-                    <button class="category-tag" data-category="待办">
-                        <i data-lucide="check-circle" class="sm-icon"></i> 待办
+                    <button class="category-tag" data-category="复习">
+                        <i data-lucide="star" class="sm-icon"></i> 复习
                     </button>
                     <button class="category-tag" data-category="生活">生活</button>
                     <button class="category-tag" data-category="职场">职场</button>
@@ -166,21 +166,15 @@
                 <!-- 详情内容动态填充 -->
             </div>
             <div class="modal-footer">
-                <a id="modal-source-link" href="#" target="_blank" class="btn btn-text hidden">
-                    <i data-lucide="external-link"></i> 原视频链接
-                </a>
                 <button id="btn-edit-card" class="btn btn-secondary">
                     <i data-lucide="pencil"></i> 编辑内容
                 </button>
                 <button id="btn-save-card" class="btn btn-primary hidden">
-                    <i data-lucide="save"></i> 保存
+                    <i data-lucide="save"></i> 完成
                 </button>
                 <button id="btn-cancel-edit" class="btn btn-text hidden">取消编辑</button>
-                <button id="btn-open-notebook" class="btn btn-secondary">
-                    <i data-lucide="notebook-pen"></i> 生成记事本
-                </button>
                 <button id="btn-add-todo" class="btn btn-secondary">
-                    <i data-lucide="list-todo"></i> 加入待办
+                    <i data-lucide="sparkles"></i> Get it
                 </button>
                 <button id="btn-delete-card" class="btn btn-danger">
                     <i data-lucide="trash-2"></i> 删除
@@ -253,6 +247,6 @@
     <!-- 用于导出图片的隐藏容器 -->
     <div id="export-container" class="export-container hidden"></div>
 
-    <script src="script.js?v=20260509-demo-key"></script>
+    <script src="script.js?v=20260509-get-review"></script>
 </body>
 </html>
