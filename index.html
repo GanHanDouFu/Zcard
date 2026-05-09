@@ -12,6 +12,14 @@
 </head>
 <body>
     <div class="app-shell">
+        <div class="wx-status-bar" aria-hidden="true">
+            <span>9:41</span>
+            <div class="wx-status-icons">
+                <i data-lucide="signal"></i>
+                <i data-lucide="wifi"></i>
+                <i data-lucide="battery-full"></i>
+            </div>
+        </div>
         <!-- 顶部导航栏 -->
         <header class="header">
             <div class="logo-container">
@@ -21,10 +29,11 @@
                     <p class="slogan">让每一条视频都变成你的知识</p>
                 </div>
             </div>
-            <div class="header-actions">
+            <div class="header-actions wx-capsule">
                 <button id="btn-flashcard" class="btn btn-secondary">
                     <i data-lucide="layers"></i> 复习模式
                 </button>
+                <span class="wx-capsule-divider" aria-hidden="true"></span>
                 <button id="btn-settings" class="btn btn-icon" title="设置 API Key">
                     <i data-lucide="settings"></i>
                 </button>
