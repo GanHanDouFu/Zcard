@@ -9,6 +9,9 @@ let currentSearch = '';
 let selectedCards = new Set();
 let flashcardQueue = [];
 let currentFlashcardIndex = 0;
+let currentActionCardId = null;
+let currentReviewCardId = null;
+let isEditingCard = false;
 
 // API 配置
 const API_URL = 'https://api.deepseek.com/chat/completions';
@@ -69,6 +72,22 @@ const els = {
     btnIntegrate: document.getElementById('btn-integrate'),
     btnExport: document.getElementById('btn-export'),
     btnCancelSelect: document.getElementById('btn-cancel-select'),
+    reviewSection: document.getElementById('review-section'),
+    reviewCard: document.getElementById('review-card'),
+    reviewTitle: document.getElementById('review-title'),
+    reviewCore: document.getElementById('review-core'),
+    btnReviewDo: document.getElementById('btn-review-do'),
+    btnReviewSkip: document.getElementById('btn-review-skip'),
+    btnClearSearch: document.getElementById('btn-clear-search'),
+    searchModal: document.getElementById('search-modal'),
+    btnCloseSearch: document.getElementById('btn-close-search'),
+    searchResults: document.getElementById('search-results'),
+    searchResultTitle: document.getElementById('search-result-title'),
+    searchResultCount: document.getElementById('search-result-count'),
+    actionModal: document.getElementById('action-modal'),
+    btnActionDetail: document.getElementById('btn-action-detail'),
+    btnActionDouyin: document.getElementById('btn-action-douyin'),
+    btnActionCancel: document.getElementById('btn-action-cancel'),
     
     // Modals
     cardModal: document.getElementById('card-modal'),
@@ -76,7 +95,15 @@ const els = {
     btnCloseModal: document.getElementById('btn-close-modal'),
     btnDeleteCard: document.getElementById('btn-delete-card'),
     btnAddTodo: document.getElementById('btn-add-todo'),
+    btnEditCard: document.getElementById('btn-edit-card'),
+    btnSaveCard: document.getElementById('btn-save-card'),
+    btnCancelEdit: document.getElementById('btn-cancel-edit'),
+    btnOpenNotebook: document.getElementById('btn-open-notebook'),
     modalSourceLink: document.getElementById('modal-source-link'),
+    notebookModal: document.getElementById('notebook-modal'),
+    btnCloseNotebook: document.getElementById('btn-close-notebook'),
+    notebookInput: document.getElementById('notebook-input'),
+    btnSaveNotebook: document.getElementById('btn-save-notebook'),
     
     flashcardModal: document.getElementById('flashcard-modal'),
     btnFlashcard: document.getElementById('btn-flashcard'),
@@ -105,6 +132,7 @@ let currentViewCardId = null;
 function init() {
     refreshIcons();
     renderCards();
+    renderDailyReview();
     bindEvents();
 }
 
@@ -133,8 +161,20 @@ function bindEvents() {
     // 搜索
     els.searchInput.addEventListener('input', (e) => {
         currentSearch = e.target.value.trim().toLowerCase();
-        renderCards();
+        els.btnClearSearch.classList.toggle('hidden', !currentSearch);
+        if (currentSearch) {
+            showSearchResults(currentSearch);
+        } else {
+            closeSearchResults();
+        }
     });
+    els.btnClearSearch.addEventListener('click', () => {
+        els.searchInput.value = '';
+        currentSearch = '';
+        els.btnClearSearch.classList.add('hidden');
+        closeSearchResults();
+    });
+    els.btnCloseSearch.addEventListener('click', closeSearchResults);
     
     // 卡片选择与操作
     els.btnCancelSelect.addEventListener('click', () => {
@@ -159,10 +199,33 @@ function bindEvents() {
             saveCards();
             els.cardModal.classList.add('hidden');
             renderCards();
+            renderDailyReview();
         }
     });
     
     els.btnAddTodo.addEventListener('click', handleAddTodo);
+    els.btnEditCard.addEventListener('click', () => {
+        const card = cards.find(c => c.id === currentViewCardId);
+        if (card) openCardDetail(card, true);
+    });
+    els.btnCancelEdit.addEventListener('click', () => {
+        const card = cards.find(c => c.id === currentViewCardId);
+        if (card) openCardDetail(card, false);
+    });
+    els.btnSaveCard.addEventListener('click', saveEditedCard);
+    els.btnOpenNotebook.addEventListener('click', openNotebook);
+    els.btnCloseNotebook.addEventListener('click', () => els.notebookModal.classList.add('hidden'));
+    els.btnSaveNotebook.addEventListener('click', saveNotebook);
+
+    els.btnActionCancel.addEventListener('click', () => els.actionModal.classList.add('hidden'));
+    els.btnActionDetail.addEventListener('click', () => {
+        const card = cards.find(c => c.id === currentActionCardId);
+        els.actionModal.classList.add('hidden');
+        if (card) openCardDetail(card);
+    });
+
+    els.btnReviewSkip.addEventListener('click', () => completeReviewCard(false));
+    els.btnReviewDo.addEventListener('click', () => completeReviewCard(true));
     
     // 闪卡复习
     els.btnFlashcard.addEventListener('click', startFlashcardMode);
@@ -231,16 +294,6 @@ function renderCards() {
         filtered = filtered.filter(c => c.category === currentCategory && !c.is_todo);
     }
     
-    // 2. 领域内搜索过滤
-    if (currentSearch) {
-        filtered = filtered.filter(c => {
-            const titleMatch = (c.title || '').toLowerCase().includes(currentSearch);
-            const coreMatch = (c.core_point || '').toLowerCase().includes(currentSearch);
-            const pointsMatch = (c.key_points || []).join(' ').toLowerCase().includes(currentSearch);
-            return titleMatch || coreMatch || pointsMatch;
-        });
-    }
-    
     // 渲染
     els.cardsContainer.innerHTML = '';
     
@@ -255,6 +308,7 @@ function renderCards() {
     filtered.forEach(card => {
         const cardEl = document.createElement('div');
         cardEl.className = `knowledge-card ${card.is_integrated ? 'integrated' : ''} ${card.is_todo && card.todo_status === '已完成' ? 'todo-completed' : ''}`;
+        const canIntegrate = getSameCategoryCards(card).length >= 2 && !card.is_integrated;
         
         // 阻止复选框点击事件冒泡到卡片
         const checkboxHtml = `<input type="checkbox" class="card-checkbox" data-id="${escapeHTML(card.id)}" ${selectedCards.has(card.id) ? 'checked' : ''}>`;
@@ -268,6 +322,7 @@ function renderCards() {
             <p class="card-core">${escapeHTML(card.core_point || card.summary || '')}</p>
             <div class="card-footer">
                 <span>${escapeHTML(card.created_at)}</span>
+                ${canIntegrate ? '<span class="merge-hint">可整合</span>' : ''}
                 ${card.is_todo ? `<button class="btn btn-text btn-toggle-todo" data-id="${escapeHTML(card.id)}">${card.todo_status === '已完成' ? '撤销' : '完成'}</button>` : ''}
             </div>
         `;
@@ -275,7 +330,7 @@ function renderCards() {
         // 卡片点击事件 (打开详情)
         cardEl.addEventListener('click', (e) => {
             if (e.target.classList.contains('card-checkbox') || e.target.classList.contains('btn-toggle-todo')) return;
-            openCardDetail(card);
+            openCardActions(card);
         });
         
         // 复选框点击事件
@@ -301,6 +356,70 @@ function renderCards() {
         
         els.cardsContainer.appendChild(cardEl);
     });
+    refreshIcons();
+}
+
+function cardMatchesSearch(card, keyword) {
+    const normalized = keyword.trim().toLowerCase();
+    if (!normalized) return false;
+    const haystack = [
+        card.title,
+        card.core_point,
+        card.summary,
+        card.quote,
+        card.action,
+        ...safeList(card.key_points),
+        ...safeList(card.angles)
+    ].join(' ').toLowerCase();
+    return haystack.includes(normalized);
+}
+
+function showSearchResults(keyword) {
+    const results = cards.filter(card => cardMatchesSearch(card, keyword));
+    els.searchResultTitle.textContent = `搜索结果 - "${keyword}"`;
+    els.searchResultCount.textContent = results.length ? `共找到 ${results.length} 张卡片` : '未找到相关卡片';
+    els.searchResults.innerHTML = results.length
+        ? results.map(card => renderResultCardHTML(card)).join('')
+        : '<div class="empty-search">未找到相关卡片</div>';
+    els.searchResults.querySelectorAll('.search-result-card').forEach((cardEl) => {
+        cardEl.addEventListener('click', () => {
+            const card = cards.find(item => item.id === cardEl.dataset.id);
+            closeSearchResults();
+            if (card) openCardActions(card);
+        });
+    });
+    els.searchModal.classList.remove('hidden');
+    refreshIcons();
+}
+
+function closeSearchResults() {
+    els.searchModal.classList.add('hidden');
+}
+
+function renderResultCardHTML(card) {
+    return `
+        <article class="knowledge-card search-result-card" data-id="${escapeHTML(card.id)}">
+            <div class="card-header">
+                <span class="card-badge">${escapeHTML(card.category || '未分类')}</span>
+            </div>
+            <h3 class="card-title">${escapeHTML(card.title)}</h3>
+            <p class="card-core">${escapeHTML(card.core_point || card.summary || '')}</p>
+        </article>
+    `;
+}
+
+function openCardActions(card) {
+    currentActionCardId = card.id;
+    const sourceUrl = safeUrl(card.video_link);
+    if (sourceUrl) {
+        els.btnActionDouyin.href = sourceUrl;
+        els.btnActionDouyin.classList.remove('disabled');
+    } else {
+        els.btnActionDouyin.removeAttribute('href');
+        els.btnActionDouyin.classList.add('disabled');
+    }
+    els.actionModal.classList.remove('hidden');
+    refreshIcons();
 }
 
 function updateBatchActions() {
@@ -313,12 +432,62 @@ function updateBatchActions() {
     }
 }
 
+function todayKey() {
+    return new Date().toISOString().split('T')[0];
+}
+
+function renderDailyReview() {
+    const today = todayKey();
+    const available = cards.filter(card => !card.is_todo && !card.is_integrated && card.reviewed_on !== today);
+    if (available.length === 0) {
+        currentReviewCardId = null;
+        els.reviewSection.classList.add('hidden');
+        return;
+    }
+    const index = Math.floor(Math.random() * available.length);
+    const card = available[index];
+    currentReviewCardId = card.id;
+    els.reviewTitle.textContent = card.title || '知识复习';
+    els.reviewCore.textContent = card.core_point || card.summary || '打开一张卡片，回忆它的核心观点。';
+    els.reviewCard.classList.remove('shattering');
+    els.reviewSection.classList.remove('hidden');
+}
+
+function completeReviewCard(withEffect) {
+    const card = cards.find(c => c.id === currentReviewCardId);
+    if (!card) return;
+    const finish = () => {
+        card.reviewed_on = todayKey();
+        saveCards();
+        renderDailyReview();
+    };
+    if (withEffect) {
+        els.reviewCard.classList.add('shattering');
+        setTimeout(finish, 900);
+    } else {
+        finish();
+    }
+}
+
+function getSameCategoryCards(card) {
+    return cards.filter(item =>
+        item.id !== card.id &&
+        item.category === card.category &&
+        !item.is_integrated &&
+        !item.is_todo
+    );
+}
+
 // 打开卡片详情
-function openCardDetail(card) {
+function openCardDetail(card, editMode = false) {
     currentViewCardId = card.id;
+    isEditingCard = editMode;
     
     let contentHtml = '';
     
+    if (editMode) {
+        contentHtml = renderCardEditForm(card);
+    } else
     if (card.is_integrated) {
         // 整合卡片布局
         contentHtml = `
@@ -337,6 +506,7 @@ function openCardDetail(card) {
             <div class="quote-section">
                 <strong>关键结论：</strong>${escapeHTML(card.conclusion)}
             </div>
+            ${card.note ? renderNoteSection(card.note) : ''}
         `;
     } else {
         // 普通卡片/待办卡片布局
@@ -359,6 +529,7 @@ function openCardDetail(card) {
                 <h4>行动建议</h4>
                 <p>${escapeHTML(card.action)}</p>
             </div>` : ''}
+            ${card.note ? renderNoteSection(card.note) : ''}
         `;
     }
     
@@ -380,9 +551,72 @@ function openCardDetail(card) {
     } else {
         els.btnAddTodo.classList.remove('hidden');
     }
+
+    els.btnEditCard.classList.toggle('hidden', editMode);
+    els.btnOpenNotebook.classList.toggle('hidden', editMode);
+    els.btnSaveCard.classList.toggle('hidden', !editMode);
+    els.btnCancelEdit.classList.toggle('hidden', !editMode);
+    els.btnDeleteCard.classList.toggle('hidden', editMode);
+    els.modalSourceLink.classList.toggle('hidden', editMode || !sourceUrl);
     
     els.cardModal.classList.remove('hidden');
     refreshIcons();
+}
+
+function renderCardEditForm(card) {
+    return `
+        <span class="detail-badge">编辑卡片</span>
+        <div class="edit-form">
+            <label>标题<input id="edit-title" value="${escapeHTML(card.title)}"></label>
+            <label>领域<input id="edit-category" value="${escapeHTML(card.category || '')}"></label>
+            <label>核心观点<textarea id="edit-core">${escapeHTML(card.core_point || card.summary || '')}</textarea></label>
+            <label>关键要点<textarea id="edit-points">${escapeHTML(safeList(card.key_points).join('\n'))}</textarea></label>
+            <label>金句<textarea id="edit-quote">${escapeHTML(card.quote || '')}</textarea></label>
+            <label>行动建议<textarea id="edit-action">${escapeHTML(card.action || '')}</textarea></label>
+            <label>视频链接<input id="edit-link" value="${escapeHTML(card.video_link || '')}"></label>
+        </div>
+    `;
+}
+
+function renderNoteSection(note) {
+    return `
+        <div class="detail-section note-section">
+            <h4>记事本内容</h4>
+            <p>${escapeHTML(note)}</p>
+        </div>
+    `;
+}
+
+function saveEditedCard() {
+    const card = cards.find(c => c.id === currentViewCardId);
+    if (!card) return;
+    card.title = document.getElementById('edit-title').value.trim() || card.title;
+    card.category = document.getElementById('edit-category').value.trim() || '未分类';
+    card.core_point = document.getElementById('edit-core').value.trim();
+    card.key_points = document.getElementById('edit-points').value.split('\n').map(p => p.trim()).filter(Boolean);
+    card.quote = document.getElementById('edit-quote').value.trim();
+    card.action = document.getElementById('edit-action').value.trim();
+    card.video_link = document.getElementById('edit-link').value.trim();
+    saveCards();
+    renderCards();
+    renderDailyReview();
+    openCardDetail(card, false);
+}
+
+function openNotebook() {
+    const card = cards.find(c => c.id === currentViewCardId);
+    if (!card) return;
+    els.notebookInput.value = card.note || '';
+    els.notebookModal.classList.remove('hidden');
+}
+
+function saveNotebook() {
+    const card = cards.find(c => c.id === currentViewCardId);
+    if (!card) return;
+    card.note = els.notebookInput.value.trim();
+    saveCards();
+    els.notebookModal.classList.add('hidden');
+    openCardDetail(card, false);
 }
 
 // 加入待办功能
@@ -584,6 +818,7 @@ ${text}`;
         el.classList.toggle('active', el.dataset.category === '全部');
     });
     renderCards();
+    renderDailyReview();
     
     if (result.is_local) {
         alert('未检测到可用 API，已使用本地演示模式生成卡片。');
@@ -603,11 +838,26 @@ async function handleIntegrateCards() {
     
     const selectedCardsData = cards.filter(c => selectedCards.has(c.id));
     const combinedContent = selectedCardsData.map(c => `标题：${c.title}\n观点：${c.core_point || c.summary}\n要点：${(c.key_points || c.angles || []).join('，')}`).join('\n\n');
+    const categories = [...new Set(selectedCardsData.map(c => c.category).filter(Boolean))];
+    const isCrossCategory = categories.length > 1;
     
     els.loadingIndicator.querySelector('span').textContent = 'AI 正在为您整合多重视角...';
     els.loadingIndicator.classList.remove('hidden');
     
-    const prompt = `你是一个知识整合专家。以下是关于同一事件/主题的多个视频分析卡片，请整合成一张汇总卡片。
+    const prompt = isCrossCategory
+        ? `你是一个创意整合专家。用户选择了以下不同领域的卡片，请将它们整合成一张充满想象力的创意卡片。
+
+要求：
+1. 生成一个有趣、夸张的创意标题，将不同领域元素融合在一起
+2. 描述这个创意场景的关键要点
+3. 只返回JSON格式，不要其他文字
+
+返回格式：
+{"title": "创意标题（15字以内）", "scenario": "场景描述（50字以内）", "key_points": ["要点1", "要点2", "要点3"], "category": "揉杂"}
+
+选择的卡片内容：
+${combinedContent}`
+        : `你是一个知识整合专家。以下是关于同一事件/主题的多个视频分析卡片，请整合成一张汇总卡片。
 
 要求：
 1. 只返回JSON格式，不要返回任何其他文字
@@ -626,13 +876,18 @@ ${combinedContent}`;
         const integratedCard = {
             id: 'int_' + Date.now(),
             ...result,
-            category: selectedCardsData[0].category, // 继承第一个卡片的分类
+            summary: result.summary || result.scenario || result.core_point,
+            core_point: result.core_point || result.summary || result.scenario,
+            category: isCrossCategory ? '揉杂' : selectedCardsData[0].category,
             created_at: new Date().toISOString().split('T')[0],
             is_todo: false,
             is_integrated: true,
             source_links: selectedCardsData.map(c => c.video_link).filter(Boolean)
         };
         
+        if (!isCrossCategory) {
+            cards = cards.filter(c => !selectedCards.has(c.id));
+        }
         cards.unshift(integratedCard);
         saveCards();
         

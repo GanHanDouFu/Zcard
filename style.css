@@ -224,6 +224,73 @@ a:hover {
     transition: border-color 0.3s;
 }
 
+.review-section {
+    max-width: 760px;
+    margin: 0 auto 22px;
+}
+
+.review-card {
+    background: linear-gradient(135deg, #fff, #faf9f5);
+    border: 1px solid var(--color-border);
+    border-radius: 16px;
+    padding: 18px;
+    box-shadow: 0 16px 40px -34px rgba(26, 25, 25, 0.5);
+    position: relative;
+    overflow: hidden;
+}
+
+.review-meta {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--color-accent);
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 8px;
+}
+
+.review-meta i {
+    width: 16px;
+    height: 16px;
+}
+
+.review-card h2 {
+    font-family: var(--font-sans);
+    font-size: 20px;
+    margin-bottom: 8px;
+}
+
+.review-card p {
+    color: var(--color-text-regular);
+    margin-bottom: 14px;
+}
+
+.review-actions {
+    display: flex;
+    gap: 10px;
+}
+
+.review-card.shattering {
+    animation: shatterCard 0.9s ease-in forwards;
+}
+
+.review-card.shattering::before,
+.review-card.shattering::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+        linear-gradient(35deg, transparent 48%, rgba(217, 119, 87, 0.45) 49%, transparent 50%),
+        linear-gradient(135deg, transparent 52%, rgba(36, 35, 32, 0.22) 53%, transparent 54%);
+    pointer-events: none;
+}
+
+@keyframes shatterCard {
+    0% { opacity: 1; transform: scale(1); filter: blur(0); }
+    45% { transform: scale(1.015) rotate(-0.5deg); }
+    100% { opacity: 0; transform: scale(0.92) translateY(-18px) rotate(2deg); filter: blur(3px); }
+}
+
 .input-section:focus-within {
     border-color: var(--color-accent);
 }
@@ -518,6 +585,11 @@ textarea::placeholder {
     color: var(--color-text-muted);
 }
 
+.merge-hint {
+    color: var(--color-accent);
+    font-weight: 600;
+}
+
 /* 9. 弹窗样式 (Modals) */
 .modal {
     position: fixed;
@@ -636,6 +708,119 @@ textarea::placeholder {
     justify-content: flex-end;
     gap: var(--space-sm);
     background-color: var(--color-bg);
+}
+
+.search-modal-content {
+    max-width: 720px;
+    padding: var(--space-xl);
+}
+
+.search-result-head {
+    margin-bottom: var(--space-lg);
+}
+
+.search-result-head h2 {
+    font-family: var(--font-sans);
+    font-size: 24px;
+    margin: 10px 0 4px;
+}
+
+.search-result-head p,
+.empty-search {
+    color: var(--color-text-muted);
+}
+
+.search-results {
+    display: grid;
+    gap: 12px;
+}
+
+.search-result-card {
+    min-height: 120px;
+}
+
+.action-sheet {
+    max-width: 360px;
+    padding: var(--space-xl);
+    display: grid;
+    gap: 12px;
+}
+
+.action-sheet h3 {
+    font-family: var(--font-sans);
+    margin-bottom: 4px;
+}
+
+.action-sheet .disabled {
+    opacity: 0.45;
+    pointer-events: none;
+}
+
+.edit-form {
+    display: grid;
+    gap: 14px;
+}
+
+.edit-form label {
+    display: grid;
+    gap: 6px;
+    color: var(--color-text-muted);
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.edit-form input,
+.edit-form textarea,
+.notebook-input {
+    width: 100%;
+    border: 1px solid var(--color-border);
+    border-radius: 10px;
+    padding: 10px 12px;
+    background: var(--color-bg);
+    color: var(--color-text-main);
+    font: inherit;
+}
+
+.edit-form textarea {
+    min-height: 72px;
+}
+
+.notebook-content {
+    max-width: 560px;
+    padding: var(--space-xl);
+}
+
+.notebook-content h2 {
+    margin: 10px 0 var(--space-md);
+}
+
+.notebook-input {
+    min-height: 260px;
+    resize: vertical;
+}
+
+.note-section {
+    background: #faf9f5;
+    border: 1px solid var(--color-border);
+    border-radius: 12px;
+    padding: var(--space-md);
+}
+
+.search-clear {
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    border: 0;
+    background: transparent;
+    color: var(--color-text-muted);
+    cursor: pointer;
+    padding: 4px;
+}
+
+.search-clear i {
+    width: 14px;
+    height: 14px;
 }
 
 /* 10. 闪卡复习模式 (Flashcard) */
@@ -917,6 +1102,24 @@ textarea::placeholder {
         scroll-behavior: smooth;
     }
 
+    .review-section {
+        max-width: none;
+        margin-bottom: 14px;
+    }
+
+    .review-card {
+        border-radius: 16px;
+        padding: 14px;
+    }
+
+    .review-card h2 {
+        font-size: 17px;
+    }
+
+    .review-card p {
+        font-size: 13px;
+    }
+
     .input-section {
         padding: 12px;
         margin-bottom: 14px;
@@ -1170,6 +1373,21 @@ textarea::placeholder {
         max-height: 92vh;
         border-radius: 18px 18px 0 0;
         background-color: #ffffff;
+    }
+
+    .search-modal-content,
+    .action-sheet,
+    .notebook-content {
+        max-width: none;
+        padding: 22px 16px;
+    }
+
+    .search-result-head h2 {
+        font-size: 20px;
+    }
+
+    .notebook-input {
+        min-height: 220px;
     }
 
     .card-detail-body,
