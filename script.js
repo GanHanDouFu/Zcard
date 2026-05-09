@@ -69,15 +69,18 @@ function normalizeCard(card) {
             ...(card.customStyles[key] || {})
         };
     });
-    if (typeof card.isGot !== 'boolean') {
-        card.isGot = false;
+    if (typeof card.isRead !== 'boolean') {
+        card.isRead = !!card.isGot;
+    }
+    if (typeof card.isFavorite !== 'boolean') {
+        card.isFavorite = false;
     }
     return card;
 }
 
 function styleAttr(card, field) {
     const styles = normalizeCard(card).customStyles[field] || TEXT_STYLE_DEFAULTS[field];
-    return `style="font-size:${escapeHTML(styles.fontSize)};color:${escapeHTML(styles.color)}"`;
+    return `style="font-size:${escapeHTML(styles.fontSize)};color:${escapeHTML(styles.color)};font-weight:${escapeHTML(styles.fontWeight || '400')};font-style:${escapeHTML(styles.fontStyle || 'normal')};text-decoration:${escapeHTML(styles.textDecoration || 'none')}"`;
 }
 
 function loadCards() {
@@ -216,6 +219,16 @@ function bindEvents() {
     
     els.btnIntegrate.addEventListener('click', handleIntegrateCards);
     els.btnExport.addEventListener('click', handleExportImages);
+
+    els.cardsContainer.addEventListener('click', (e) => {
+        const starBtn = e.target.closest('.card-got-toggle');
+        if (!starBtn) return;
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        e.stopPropagation();
+        const card = cards.find(item => item.id === starBtn.dataset.id);
+        if (card) toggleGotCard(card);
+    }, true);
     
     // 详情弹窗
     els.btnCloseModal.addEventListener('click', () => {
@@ -317,13 +330,7 @@ function bindEvents() {
                 renderCards();
                 els.cardsContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
             } else if (action === 'review') {
-                currentCategory = '复习';
-                document.querySelectorAll('.category-tag').forEach(el => {
-                    el.classList.toggle('active', el.dataset.category === '复习');
-                });
-                els.searchInput.placeholder = '在【复习】中搜索...';
-                renderCards();
-                els.cardsContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                startFlashcardMode();
             } else if (action === 'settings') {
                 els.apiKeyInput.value = API_KEY;
                 els.settingsModal.classList.remove('hidden');
@@ -337,8 +344,12 @@ function renderCards() {
     let filtered = cards;
     
     // 1. 分类过滤
-    if (currentCategory === '复习') {
-        filtered = filtered.filter(c => c.isGot);
+    if (currentCategory === '收藏') {
+        filtered = filtered.filter(c => c.isFavorite);
+    } else if (currentCategory === '未读') {
+        filtered = filtered.filter(c => !c.isRead && !c.is_todo);
+    } else if (currentCategory === '已读') {
+        filtered = filtered.filter(c => c.isRead);
     } else if (currentCategory !== '全部') {
         filtered = filtered.filter(c => c.category === currentCategory && !c.is_todo);
     }
@@ -357,54 +368,79 @@ function renderCards() {
     filtered.forEach(card => {
         const cardEl = document.createElement('div');
         normalizeCard(card);
-        cardEl.className = `knowledge-card ${card.is_integrated ? 'integrated' : ''} ${card.isGot ? 'got-card' : ''} ${card.is_todo && card.todo_status === '已完成' ? 'todo-completed' : ''}`;
+        cardEl.className = `knowledge-card-wrap ${card.is_integrated ? 'integrated' : ''} ${card.isFavorite ? 'got-card' : ''} ${card.isRead ? 'read-card' : ''} ${card.is_todo && card.todo_status === '已完成' ? 'todo-completed' : ''}`;
         const canIntegrate = getSameCategoryCards(card).length >= 2 && !card.is_integrated;
         
-        // 阻止复选框点击事件冒泡到卡片
-        const checkboxHtml = `<input type="checkbox" class="card-checkbox" data-id="${escapeHTML(card.id)}" ${selectedCards.has(card.id) ? 'checked' : ''}>`;
+        const starHtml = `
+            <button type="button" class="card-got-toggle ${card.isFavorite ? 'active' : ''}" data-id="${escapeHTML(card.id)}" title="${card.isFavorite ? '取消收藏' : '收藏'}" aria-label="${card.isFavorite ? '取消收藏' : '收藏'}">
+                <i data-lucide="star"></i>
+            </button>
+        `;
         
         cardEl.innerHTML = `
-            <div class="card-header">
-                <span class="card-badge">${escapeHTML(card.is_integrated ? '整合' : (card.is_todo ? '待办' : card.category))}</span>
-                ${card.isGot ? '<span class="got-star" title="已Get">⭐</span>' : ''}
-                ${checkboxHtml}
-            </div>
-            <h3 class="card-title" ${styleAttr(card, 'title')}>${escapeHTML(card.title)}</h3>
-            <p class="card-core" ${styleAttr(card, 'core_point')}>${escapeHTML(card.core_point || card.summary || '')}</p>
-            <div class="card-footer">
+            <button type="button" class="swipe-delete" data-id="${escapeHTML(card.id)}">
+                <i data-lucide="trash-2"></i>
+                <span>删除</span>
+            </button>
+            <div class="knowledge-card swipe-card">
+                <div class="card-header">
+                    <span class="card-badge">${escapeHTML(card.is_integrated ? '整合' : (card.is_todo ? '待办' : card.category))}</span>
+                    ${starHtml}
+                </div>
+                <h3 class="card-title" ${styleAttr(card, 'title')}>${escapeHTML(card.title)}</h3>
+                <p class="card-core" ${styleAttr(card, 'core_point')}>${escapeHTML(card.core_point || card.summary || '')}</p>
+                <div class="card-footer">
                 <span>${escapeHTML(card.created_at)}</span>
                 ${canIntegrate ? '<span class="merge-hint">可整合</span>' : ''}
-                ${currentCategory === '复习' ? `<button class="btn btn-text btn-toggle-got" data-id="${escapeHTML(card.id)}">取消Get</button>` : ''}
+            </div>
             </div>
         `;
         
         // 卡片点击事件 (打开详情)
         cardEl.addEventListener('click', (e) => {
-            if (e.target.classList.contains('card-checkbox') || e.target.classList.contains('btn-toggle-got')) return;
+            if (cardEl.dataset.swipeSuppressClick === 'true') {
+                e.preventDefault();
+                e.stopPropagation();
+                delete cardEl.dataset.swipeSuppressClick;
+                return;
+            }
+            if (cardEl.dataset.swipeJustOpened === 'true') {
+                e.preventDefault();
+                e.stopPropagation();
+                return;
+            }
+            if (cardEl.classList.contains('swiped')) {
+                e.preventDefault();
+                e.stopPropagation();
+                if (e.target.closest('.swipe-delete')) return;
+                cardEl.classList.remove('swiped');
+                cardEl.querySelector('.swipe-card').style.transform = '';
+                return;
+            }
+            if (e.target.closest('.card-got-toggle') || e.target.closest('.swipe-delete')) return;
             openCardActions(card);
         });
-        
-        // 复选框点击事件
-        const checkbox = cardEl.querySelector('.card-checkbox');
-        checkbox.addEventListener('change', (e) => {
-            if (e.target.checked) {
-                selectedCards.add(card.id);
-            } else {
-                selectedCards.delete(card.id);
-            }
+
+        const deleteBtn = cardEl.querySelector('.swipe-delete');
+        deleteBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (!confirm('确定删除这张卡片吗？')) return;
+            cards = cards.filter(item => item.id !== card.id);
+            selectedCards.delete(card.id);
+            saveCards();
             updateBatchActions();
+            renderCards();
+            renderDailyReview();
         });
-        
-        const gotBtn = cardEl.querySelector('.btn-toggle-got');
-        if (gotBtn) {
-            gotBtn.addEventListener('click', () => {
-                card.isGot = false;
-                card.gotAt = '';
-                saveCards();
-                renderCards();
-                renderDailyReview();
-            });
-        }
+
+        const starBtn = cardEl.querySelector('.card-got-toggle');
+        ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'touchstart', 'touchend'].forEach((eventName) => {
+            starBtn.addEventListener(eventName, (e) => {
+                e.stopPropagation();
+            }, { passive: true });
+        });
+
+        bindSwipeToDelete(cardEl);
         
         els.cardsContainer.appendChild(cardEl);
     });
@@ -451,15 +487,103 @@ function closeSearchResults() {
 function renderResultCardHTML(card) {
     normalizeCard(card);
     return `
-        <article class="knowledge-card search-result-card ${card.isGot ? 'got-card' : ''}" data-id="${escapeHTML(card.id)}">
+        <article class="knowledge-card search-result-card ${card.isFavorite ? 'got-card' : ''}" data-id="${escapeHTML(card.id)}">
             <div class="card-header">
                 <span class="card-badge">${escapeHTML(card.category || '未分类')}</span>
-                ${card.isGot ? '<span class="got-star" title="已Get">⭐</span>' : ''}
+                ${card.isFavorite ? '<span class="got-star" title="已收藏">⭐</span>' : ''}
             </div>
             <h3 class="card-title" ${styleAttr(card, 'title')}>${escapeHTML(card.title)}</h3>
             <p class="card-core" ${styleAttr(card, 'core_point')}>${escapeHTML(card.core_point || card.summary || '')}</p>
         </article>
     `;
+}
+
+function toggleGotCard(card) {
+    normalizeCard(card);
+    card.isFavorite = !card.isFavorite;
+    saveCards();
+    renderCards();
+}
+
+function bindSwipeToDelete(cardEl) {
+    const swipeCard = cardEl.querySelector('.swipe-card');
+    const openOffset = -84;
+    let startX = 0;
+    let startY = 0;
+    let startOffset = 0;
+    let currentOffset = 0;
+    let dragging = false;
+    let startedSwiped = false;
+
+    const resetDragStyle = () => {
+        swipeCard.style.transition = '';
+    };
+
+    const start = (event) => {
+        startX = event.clientX;
+        startY = event.clientY;
+        startedSwiped = cardEl.classList.contains('swiped');
+        startOffset = startedSwiped ? openOffset : 0;
+        currentOffset = startOffset;
+        dragging = true;
+        swipeCard.style.transition = 'none';
+        swipeCard.setPointerCapture?.(event.pointerId);
+    };
+
+    const move = (event) => {
+        if (!dragging) return;
+        const dx = event.clientX - startX;
+        const dy = event.clientY - startY;
+        if (Math.abs(dy) > Math.abs(dx)) return;
+        cardEl.classList.remove('swiped');
+        currentOffset = Math.min(0, Math.max(openOffset, startOffset + dx));
+        event.preventDefault();
+        swipeCard.style.transform = `translateX(${currentOffset}px)`;
+    };
+
+    const end = (event) => {
+        if (!dragging) return;
+        const dx = event.clientX - startX;
+        const dy = event.clientY - startY;
+        dragging = false;
+        resetDragStyle();
+        if (startedSwiped && Math.abs(dx) < 8 && Math.abs(dy) < 8) {
+            cardEl.classList.remove('swiped');
+            swipeCard.style.transform = '';
+            cardEl.dataset.swipeSuppressClick = 'true';
+            window.setTimeout(() => {
+                delete cardEl.dataset.swipeSuppressClick;
+            }, 350);
+            return;
+        }
+        if (currentOffset <= -42) {
+            cardEl.classList.add('swiped');
+            cardEl.dataset.swipeJustOpened = 'true';
+            swipeCard.style.transform = `translateX(${openOffset}px)`;
+            window.setTimeout(() => {
+                delete cardEl.dataset.swipeJustOpened;
+            }, 350);
+        } else {
+            cardEl.classList.remove('swiped');
+            swipeCard.style.transform = '';
+        }
+    };
+
+    swipeCard.addEventListener('pointerdown', start);
+    swipeCard.addEventListener('pointermove', move);
+    swipeCard.addEventListener('pointerup', end);
+    swipeCard.addEventListener('pointercancel', end);
+    swipeCard.addEventListener('click', (event) => {
+        event.preventDefault();
+        if (cardEl.dataset.swipeJustOpened === 'true') {
+            event.stopPropagation();
+            return;
+        }
+        if (!cardEl.classList.contains('swiped')) return;
+        event.stopPropagation();
+        cardEl.classList.remove('swiped');
+        swipeCard.style.transform = '';
+    });
 }
 
 function openCardActions(card) {
@@ -492,7 +616,7 @@ function todayKey() {
 
 function renderDailyReview() {
     const today = todayKey();
-    const gotCards = cards.filter(card => card.isGot && !card.is_integrated);
+    const gotCards = cards.filter(card => card.isRead && !card.is_integrated);
     const available = gotCards.filter(card => card.reviewed_on !== today);
     if (available.length === 0) {
         currentReviewCardId = null;
@@ -501,7 +625,7 @@ function renderDailyReview() {
             : '还没有Get任何卡片';
         els.reviewCore.textContent = gotCards.length
             ? '今天加入复习池的卡片都已经复习过了。'
-            : '去详情页点击 Get it，把重要卡片加入复习池吧！';
+            : '还没有已读卡片，先打开详情页点击 Get it 吧！';
         els.btnReviewDo.classList.add('hidden');
         els.btnReviewSkip.classList.add('hidden');
         els.reviewCard.classList.remove('shattering', 'reviewing');
@@ -618,11 +742,10 @@ function openCardDetail(card, editMode = false) {
         els.btnAddTodo.classList.add('hidden');
     } else {
         els.btnAddTodo.classList.remove('hidden');
-        els.btnAddTodo.disabled = !!card.isGot;
-        els.btnAddTodo.innerHTML = card.isGot
-            ? '<i data-lucide="star"></i> 已Get'
+        els.btnAddTodo.innerHTML = card.isRead
+            ? '<i data-lucide="check-circle"></i> 已读'
             : '<i data-lucide="sparkles"></i> Get it';
-        els.btnAddTodo.classList.toggle('is-got', !!card.isGot);
+        els.btnAddTodo.classList.toggle('is-got', !!card.isRead);
     }
 
     els.btnEditCard.classList.toggle('hidden', editMode);
@@ -658,9 +781,9 @@ function renderCardEditForm(card) {
                 <button type="button" class="color-dot" data-color="#2563eb" style="--dot:#2563eb" title="蓝色"></button>
                 <button type="button" class="color-dot" data-color="#6f6b65" style="--dot:#6f6b65" title="灰色"></button>
                 <span class="dock-divider"></span>
-                <button type="button" data-insert="• ">•</button>
-                <button type="button" data-insert="☐ ">☐</button>
-                <button type="button" data-insert="@"> @ </button>
+                <button type="button" data-format="bold"><strong>B</strong></button>
+                <button type="button" data-format="underline"><u>U</u></button>
+                <button type="button" data-format="italic"><em>I</em></button>
             </div>
         </div>
     `;
@@ -669,9 +792,10 @@ function renderCardEditForm(card) {
 function renderEditField(field, label, type, value, card) {
     const styles = card.customStyles[field] || TEXT_STYLE_DEFAULTS[field];
     const controlId = `edit-${field}`;
+    const editFontSize = '16px';
     const control = type === 'input'
-        ? `<input id="${controlId}" data-style-field="${field}" value="${escapeHTML(value)}" style="font-size:${escapeHTML(styles.fontSize)};color:${escapeHTML(styles.color)}">`
-        : `<textarea id="${controlId}" data-style-field="${field}" style="font-size:${escapeHTML(styles.fontSize)};color:${escapeHTML(styles.color)}">${escapeHTML(value)}</textarea>`;
+        ? `<input id="${controlId}" data-style-field="${field}" value="${escapeHTML(value)}" style="font-size:${editFontSize};color:${escapeHTML(styles.color)};font-weight:${escapeHTML(styles.fontWeight || '400')};font-style:${escapeHTML(styles.fontStyle || 'normal')};text-decoration:${escapeHTML(styles.textDecoration || 'none')}">`
+        : `<textarea id="${controlId}" data-style-field="${field}" style="font-size:${editFontSize};color:${escapeHTML(styles.color)};font-weight:${escapeHTML(styles.fontWeight || '400')};font-style:${escapeHTML(styles.fontStyle || 'normal')};text-decoration:${escapeHTML(styles.textDecoration || 'none')}">${escapeHTML(value)}</textarea>`;
 
     return `
         <label class="editable-field" data-field="${field}">
@@ -701,16 +825,16 @@ function bindEditStyleControls() {
             if (button.dataset.color) {
                 input.style.color = button.dataset.color;
             }
-            if (button.dataset.insert && 'selectionStart' in input) {
-                const start = input.selectionStart;
-                const end = input.selectionEnd;
-                const insert = button.dataset.insert;
-                input.value = `${input.value.slice(0, start)}${insert}${input.value.slice(end)}`;
-                input.focus();
-                input.setSelectionRange(start + insert.length, start + insert.length);
-            } else {
-                input.focus();
+            if (button.dataset.format === 'bold') {
+                input.style.fontWeight = input.style.fontWeight === '700' ? '400' : '700';
             }
+            if (button.dataset.format === 'underline') {
+                input.style.textDecoration = input.style.textDecoration.includes('underline') ? 'none' : 'underline';
+            }
+            if (button.dataset.format === 'italic') {
+                input.style.fontStyle = input.style.fontStyle === 'italic' ? 'normal' : 'italic';
+            }
+            input.focus();
         });
     });
 }
@@ -740,7 +864,10 @@ function saveEditedCard() {
         const field = input.dataset.styleField;
         card.customStyles[field] = {
             fontSize: input.style.fontSize || TEXT_STYLE_DEFAULTS[field]?.fontSize || '16px',
-            color: input.style.color || TEXT_STYLE_DEFAULTS[field]?.color || '#1f1f1d'
+            color: input.style.color || TEXT_STYLE_DEFAULTS[field]?.color || '#1f1f1d',
+            fontWeight: input.style.fontWeight || '400',
+            fontStyle: input.style.fontStyle || 'normal',
+            textDecoration: input.style.textDecoration || 'none'
         };
     });
     saveCards();
@@ -769,10 +896,14 @@ function saveNotebook() {
 function handleGetCard() {
     const sourceCard = cards.find(c => c.id === currentViewCardId);
     if (!sourceCard) return;
-    sourceCard.isGot = true;
-    sourceCard.gotAt = new Date().toISOString();
+    normalizeCard(sourceCard);
+    const nextRead = !sourceCard.isRead;
+    sourceCard.isRead = nextRead;
+    sourceCard.readAt = nextRead ? new Date().toISOString() : '';
     saveCards();
-    playGetAnimation();
+    if (nextRead) {
+        playGetAnimation();
+    }
     renderCards();
     renderDailyReview();
     openCardDetail(sourceCard, false);
@@ -878,8 +1009,9 @@ function createLocalCard(text, videoLink = '') {
         category: '学习',
         video_link: videoLink,
         is_local: true,
-        isGot: false,
-        gotAt: '',
+        isRead: false,
+        readAt: '',
+        isFavorite: false,
         customStyles: {}
     };
 }
@@ -961,8 +1093,9 @@ ${text}`;
         created_at: new Date().toISOString().split('T')[0],
         is_todo: false,
         is_integrated: false,
-        isGot: false,
-        gotAt: '',
+        isRead: false,
+        readAt: '',
+        isFavorite: false,
         customStyles: {}
     };
     
@@ -1039,8 +1172,9 @@ ${combinedContent}`;
             created_at: new Date().toISOString().split('T')[0],
             is_todo: false,
             is_integrated: true,
-            isGot: false,
-            gotAt: '',
+            isRead: false,
+            readAt: '',
+            isFavorite: false,
             customStyles: {},
             source_links: selectedCardsData.map(c => c.video_link).filter(Boolean)
         };
@@ -1066,13 +1200,13 @@ ${combinedContent}`;
 // 复习闪卡模式
 function startFlashcardMode() {
     // 只复习已 Get 的卡片
-    flashcardQueue = cards.filter(c => c.isGot && !c.is_integrated);
-    if (currentCategory !== '全部' && currentCategory !== '复习') {
+    flashcardQueue = cards.filter(c => c.isRead && !c.is_integrated);
+    if (currentCategory !== '全部' && currentCategory !== '已读') {
         flashcardQueue = flashcardQueue.filter(c => c.category === currentCategory);
     }
     
     if (flashcardQueue.length === 0) {
-        alert('还没有Get任何卡片，去详情页点击 Get it 吧！');
+        alert('还没有已读卡片，去详情页点击 Get it 吧！');
         return;
     }
     

@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <title>Zcard - 让每一条视频都变成你的知识</title>
-    <link rel="stylesheet" href="style.css?v=20260509-edit-dock">
+    <link rel="stylesheet" href="style.css?v=20260509-fav-read">
     <!-- 引入 Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
     <!-- 引入 html2canvas 用于导出图片 -->
@@ -68,8 +68,14 @@
             <section class="toolbar">
                 <div class="categories" id="category-list">
                     <button class="category-tag active" data-category="全部">全部</button>
-                    <button class="category-tag" data-category="复习">
-                        <i data-lucide="star" class="sm-icon"></i> 复习
+                    <button class="category-tag" data-category="收藏">
+                        <i data-lucide="star" class="sm-icon"></i> 收藏
+                    </button>
+                    <button class="category-tag" data-category="未读">
+                        <i data-lucide="circle" class="sm-icon"></i> 未读
+                    </button>
+                    <button class="category-tag" data-category="已读">
+                        <i data-lucide="check-circle" class="sm-icon"></i> 已读
                     </button>
                     <button class="category-tag" data-category="生活">生活</button>
                     <button class="category-tag" data-category="职场">职场</button>
@@ -247,6 +253,6 @@
     <!-- 用于导出图片的隐藏容器 -->
     <div id="export-container" class="export-container hidden"></div>
 
-    <script src="script.js?v=20260509-edit-dock"></script>
+    <script src="script.js?v=20260509-fav-read"></script>
 </body>
 </html>

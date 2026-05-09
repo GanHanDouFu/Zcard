@@ -485,6 +485,17 @@ textarea::placeholder {
     margin: 0 auto;
 }
 
+.knowledge-card-wrap {
+    position: relative;
+    overflow: hidden;
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+}
+
+.knowledge-card-wrap.swiped {
+    background: #c44f45;
+}
+
 .empty-state {
     grid-column: 1 / -1;
     text-align: center;
@@ -517,6 +528,42 @@ textarea::placeholder {
     display: flex;
     flex-direction: column;
     min-height: 150px;
+}
+
+.swipe-card {
+    position: relative;
+    z-index: 1;
+    transition: transform 0.22s ease;
+    touch-action: pan-y;
+    user-select: none;
+}
+
+.knowledge-card-wrap.swiped .swipe-card {
+    transform: translateX(-84px);
+}
+
+.swipe-delete {
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: 84px;
+    border: 0;
+    border-radius: 0 var(--radius-md) var(--radius-md) 0;
+    background: #c44f45;
+    color: #ffffff;
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.swipe-delete i {
+    width: 21px;
+    height: 21px;
 }
 
 .knowledge-card:hover {
@@ -562,11 +609,39 @@ textarea::placeholder {
     margin-bottom: var(--space-sm);
 }
 
-.card-checkbox {
-    width: 16px;
-    height: 16px;
+.card-got-toggle {
+    width: 28px;
+    height: 28px;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--color-text-muted);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     cursor: pointer;
-    accent-color: var(--color-primary);
+}
+
+.card-got-toggle i {
+    width: 19px;
+    height: 19px;
+    stroke-width: 2;
+    fill: transparent;
+}
+
+.card-got-toggle.active {
+    color: #e0a11b;
+}
+
+.card-got-toggle.active i {
+    fill: #e0a11b;
+    stroke: #e0a11b;
+}
+
+.card-got-toggle.active svg,
+.card-got-toggle.active svg * {
+    fill: #e0a11b !important;
+    stroke: #e0a11b !important;
 }
 
 .card-badge {
@@ -745,8 +820,7 @@ textarea::placeholder {
     color: #ffffff;
 }
 
-#btn-add-todo.is-got,
-#btn-add-todo:disabled {
+#btn-add-todo.is-got {
     background-color: var(--color-secondary);
     border-color: var(--color-border);
     color: var(--color-text-muted);
@@ -869,6 +943,15 @@ textarea::placeholder {
     background: var(--color-bg);
     color: var(--color-text-main);
     font: inherit;
+    font-size: 16px;
+    line-height: 1.55;
+}
+
+#edit-category {
+    font-weight: 400 !important;
+    font-style: normal !important;
+    text-decoration: none !important;
+    color: var(--color-text-main) !important;
 }
 
 .edit-form textarea {
@@ -1391,6 +1474,14 @@ textarea::placeholder {
         border-color: var(--color-border);
         box-shadow: none;
         background-color: var(--color-surface);
+    }
+
+    .knowledge-card-wrap {
+        border-radius: 14px;
+    }
+
+    .swipe-delete {
+        border-radius: 0 14px 14px 0;
     }
 
     .knowledge-card:hover {
