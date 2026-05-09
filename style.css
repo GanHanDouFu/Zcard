@@ -417,6 +417,22 @@ textarea::placeholder {
     font-weight: 500;
 }
 
+.category-tag.has-favorites {
+    color: #e0a11b;
+    border-color: rgba(224, 161, 27, 0.45);
+}
+
+.category-tag.has-favorites i {
+    fill: #e0a11b;
+    stroke: #e0a11b;
+}
+
+.category-tag.has-favorites.active {
+    background-color: rgba(224, 161, 27, 0.12);
+    color: #9a6b00;
+    border-color: rgba(224, 161, 27, 0.62);
+}
+
 .sm-icon {
     width: 14px;
     height: 14px;

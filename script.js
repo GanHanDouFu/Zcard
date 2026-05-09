@@ -342,6 +342,7 @@ function bindEvents() {
 // 渲染卡片列表
 function renderCards() {
     let filtered = cards;
+    updateCollectionTabState();
     
     // 1. 分类过滤
     if (currentCategory === '收藏') {
@@ -496,6 +497,13 @@ function renderResultCardHTML(card) {
             <p class="card-core" ${styleAttr(card, 'core_point')}>${escapeHTML(card.core_point || card.summary || '')}</p>
         </article>
     `;
+}
+
+function updateCollectionTabState() {
+    const collectTab = els.categoryList.querySelector('[data-category="收藏"]');
+    if (!collectTab) return;
+    const hasFavorite = cards.some(card => normalizeCard(card).isFavorite);
+    collectTab.classList.toggle('has-favorites', hasFavorite);
 }
 
 function toggleGotCard(card) {
