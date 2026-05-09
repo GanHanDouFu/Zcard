@@ -198,6 +198,26 @@ function bindEvents() {
         els.settingsModal.classList.add('hidden');
         alert(API_KEY ? 'API Key 已保存到当前会话' : 'API Key 已清空');
     });
+
+    document.querySelectorAll('[data-mobile-action]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('[data-mobile-action]').forEach((item) => item.classList.remove('active'));
+            btn.classList.add('active');
+
+            const action = btn.dataset.mobileAction;
+            if (action === 'compose') {
+                document.getElementById('compose-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                els.videoInput.focus({ preventScroll: true });
+            } else if (action === 'cards') {
+                els.cardsContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            } else if (action === 'review') {
+                startFlashcardMode();
+            } else if (action === 'settings') {
+                els.apiKeyInput.value = API_KEY;
+                els.settingsModal.classList.remove('hidden');
+            }
+        });
+    });
 }
 
 // 渲染卡片列表

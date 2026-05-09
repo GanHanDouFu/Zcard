@@ -11,87 +11,108 @@
     <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 </head>
 <body>
-    <!-- 顶部导航栏 -->
-    <header class="header">
-        <div class="logo-container">
-            <i data-lucide="book-open" class="logo-icon"></i>
-            <div class="logo-text">
-                <h1>Zcard</h1>
-                <p class="slogan">让每一条视频都变成你的知识</p>
-            </div>
-        </div>
-        <div class="header-actions">
-            <button id="btn-flashcard" class="btn btn-secondary">
-                <i data-lucide="layers"></i> 复习模式
-            </button>
-            <button id="btn-settings" class="btn btn-icon" title="设置 API Key">
-                <i data-lucide="settings"></i>
-            </button>
-        </div>
-    </header>
-
-    <main class="main-content">
-        <!-- 输入区 -->
-        <section class="input-section">
-            <div class="input-wrapper">
-                <textarea id="video-input" placeholder="粘贴抖音视频文案或链接到这里..." rows="3"></textarea>
-                <button id="btn-generate" class="btn btn-primary">
-                    <i data-lucide="sparkles"></i> 生成知识卡片
-                </button>
-            </div>
-            <div id="loading-indicator" class="loading hidden">
-                <div class="spinner"></div>
-                <span>AI 正在为您提炼知识...</span>
-            </div>
-        </section>
-
-        <!-- 工具栏：分类与搜索 -->
-        <section class="toolbar">
-            <div class="categories" id="category-list">
-                <button class="category-tag active" data-category="全部">全部</button>
-                <button class="category-tag" data-category="待办">
-                    <i data-lucide="check-circle" class="sm-icon"></i> 待办
-                </button>
-                <button class="category-tag" data-category="生活">生活</button>
-                <button class="category-tag" data-category="职场">职场</button>
-                <button class="category-tag" data-category="学习">学习</button>
-                <button class="category-tag" data-category="娱乐">娱乐</button>
-                <button class="category-tag" data-category="财经">财经</button>
-                <button class="category-tag" data-category="健康">健康</button>
-                <button class="category-tag" data-category="科技">科技</button>
-            </div>
-
-            <div class="search-actions">
-                <div class="search-box">
-                    <i data-lucide="search" class="search-icon"></i>
-                    <input type="text" id="search-input" placeholder="在【全部】中搜索...">
+    <div class="app-shell">
+        <!-- 顶部导航栏 -->
+        <header class="header">
+            <div class="logo-container">
+                <i data-lucide="book-open" class="logo-icon"></i>
+                <div class="logo-text">
+                    <h1>Zcard</h1>
+                    <p class="slogan">让每一条视频都变成你的知识</p>
                 </div>
             </div>
-        </section>
-
-        <!-- 批量操作栏（默认隐藏） -->
-        <section id="batch-actions" class="batch-actions hidden">
-            <span class="selected-count">已选择 <strong id="selected-num">0</strong> 张卡片</span>
-            <div class="batch-btns">
-                <button id="btn-integrate" class="btn btn-primary">
-                    <i data-lucide="git-merge"></i> 整合卡片
+            <div class="header-actions">
+                <button id="btn-flashcard" class="btn btn-secondary">
+                    <i data-lucide="layers"></i> 复习模式
                 </button>
-                <button id="btn-export" class="btn btn-secondary">
-                    <i data-lucide="image"></i> 导出图片
+                <button id="btn-settings" class="btn btn-icon" title="设置 API Key">
+                    <i data-lucide="settings"></i>
                 </button>
-                <button id="btn-cancel-select" class="btn btn-text">取消选择</button>
             </div>
-        </section>
+        </header>
 
-        <!-- 卡片展示区 -->
-        <section class="cards-container" id="cards-container">
-            <!-- 卡片将通过 JS 动态生成 -->
-            <div class="empty-state hidden" id="empty-state">
-                <i data-lucide="inbox" class="empty-icon"></i>
-                <p>还没有知识卡片，快去粘贴文案生成一张吧！</p>
-            </div>
-        </section>
-    </main>
+        <main class="main-content">
+            <!-- 输入区 -->
+            <section class="input-section" id="compose-section">
+                <div class="input-wrapper">
+                    <textarea id="video-input" placeholder="粘贴抖音视频文案或链接到这里..." rows="3"></textarea>
+                    <button id="btn-generate" class="btn btn-primary">
+                        <i data-lucide="sparkles"></i> 生成知识卡片
+                    </button>
+                </div>
+                <div id="loading-indicator" class="loading hidden">
+                    <div class="spinner"></div>
+                    <span>AI 正在为您提炼知识...</span>
+                </div>
+            </section>
+
+            <!-- 工具栏：分类与搜索 -->
+            <section class="toolbar">
+                <div class="categories" id="category-list">
+                    <button class="category-tag active" data-category="全部">全部</button>
+                    <button class="category-tag" data-category="待办">
+                        <i data-lucide="check-circle" class="sm-icon"></i> 待办
+                    </button>
+                    <button class="category-tag" data-category="生活">生活</button>
+                    <button class="category-tag" data-category="职场">职场</button>
+                    <button class="category-tag" data-category="学习">学习</button>
+                    <button class="category-tag" data-category="娱乐">娱乐</button>
+                    <button class="category-tag" data-category="财经">财经</button>
+                    <button class="category-tag" data-category="健康">健康</button>
+                    <button class="category-tag" data-category="科技">科技</button>
+                </div>
+
+                <div class="search-actions">
+                    <div class="search-box">
+                        <i data-lucide="search" class="search-icon"></i>
+                        <input type="text" id="search-input" placeholder="在【全部】中搜索...">
+                    </div>
+                </div>
+            </section>
+
+            <!-- 批量操作栏（默认隐藏） -->
+            <section id="batch-actions" class="batch-actions hidden">
+                <span class="selected-count">已选择 <strong id="selected-num">0</strong> 张卡片</span>
+                <div class="batch-btns">
+                    <button id="btn-integrate" class="btn btn-primary">
+                        <i data-lucide="git-merge"></i> 整合卡片
+                    </button>
+                    <button id="btn-export" class="btn btn-secondary">
+                        <i data-lucide="image"></i> 导出图片
+                    </button>
+                    <button id="btn-cancel-select" class="btn btn-text">取消选择</button>
+                </div>
+            </section>
+
+            <!-- 卡片展示区 -->
+            <section class="cards-container" id="cards-container">
+                <!-- 卡片将通过 JS 动态生成 -->
+                <div class="empty-state hidden" id="empty-state">
+                    <i data-lucide="inbox" class="empty-icon"></i>
+                    <p>还没有知识卡片，快去粘贴文案生成一张吧！</p>
+                </div>
+            </section>
+        </main>
+
+        <nav class="bottom-nav" aria-label="底部导航">
+            <button class="bottom-nav-item active" data-mobile-action="cards">
+                <i data-lucide="layout-dashboard"></i>
+                <span>卡片</span>
+            </button>
+            <button class="bottom-nav-item" data-mobile-action="compose">
+                <i data-lucide="plus-circle"></i>
+                <span>生成</span>
+            </button>
+            <button class="bottom-nav-item" data-mobile-action="review">
+                <i data-lucide="layers"></i>
+                <span>复习</span>
+            </button>
+            <button class="bottom-nav-item" data-mobile-action="settings">
+                <i data-lucide="settings"></i>
+                <span>设置</span>
+            </button>
+        </nav>
+    </div>
 
     <!-- 卡片详情弹窗 -->
     <div id="card-modal" class="modal hidden">
