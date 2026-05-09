@@ -461,9 +461,42 @@ async function callDeepSeek(prompt) {
         
     } catch (error) {
         console.error(error);
-        alert(`AI 生成失败：${error.message || '请检查 API Key 或网络连接'}`);
         throw error;
     }
+}
+
+function createLocalCard(text, videoLink = '') {
+    const cleanedText = text
+        .replace(/https?:\/\/[^\s]+/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    const source = cleanedText || text.trim();
+    const sentences = source
+        .split(/[。！？!?；;\n]/)
+        .map((item) => item.trim())
+        .filter(Boolean);
+    const firstSentence = sentences[0] || source || '这条内容值得整理成知识卡片';
+    const title = firstSentence.slice(0, 12) || '知识摘录';
+    const keyPoints = sentences.slice(0, 3);
+
+    while (keyPoints.length < 3) {
+        keyPoints.push([
+            '保留核心观点，方便之后复习',
+            '把内容转成可执行的行动提醒',
+            '后续可接入 API 获得更完整总结'
+        ][keyPoints.length]);
+    }
+
+    return {
+        title,
+        core_point: firstSentence.slice(0, 80),
+        key_points: keyPoints.map((point) => point.slice(0, 80)),
+        quote: firstSentence.slice(0, 60),
+        action: '复盘这条内容，并补充自己的理解。',
+        category: '学习',
+        video_link: videoLink,
+        is_local: true
+    };
 }
 
 // 生成卡片
@@ -516,30 +549,39 @@ ${text}`;
 ${text}`;
     }
 
+    let result;
     try {
-        const result = await callDeepSeek(prompt);
+        result = await callDeepSeek(prompt);
+    } catch (error) {
+        console.warn('AI 调用失败，已使用本地演示模式生成卡片。', error);
+        result = createLocalCard(text, videoLink);
+    }
         
-        const newCard = {
-            id: 'card_' + Date.now(),
-            ...result,
-            video_link: videoLink,
-            created_at: new Date().toISOString().split('T')[0],
-            is_todo: false,
-            is_integrated: false
-        };
-        
-        cards.unshift(newCard);
-        saveCards();
-        
-        els.videoInput.value = '';
-        currentCategory = '全部';
-        document.querySelectorAll('.category-tag').forEach(el => {
-            el.classList.toggle('active', el.dataset.category === '全部');
-        });
-        renderCards();
-        
-    } catch (e) {
-        // Error already handled in callDeepSeek
+    const newCard = {
+        id: 'card_' + Date.now(),
+        ...result,
+        video_link: result.video_link || videoLink,
+        created_at: new Date().toISOString().split('T')[0],
+        is_todo: false,
+        is_integrated: false
+    };
+    
+    cards.unshift(newCard);
+    saveCards();
+    
+    els.videoInput.value = '';
+    currentCategory = '全部';
+    document.querySelectorAll('.category-tag').forEach(el => {
+        el.classList.toggle('active', el.dataset.category === '全部');
+    });
+    renderCards();
+    
+    if (result.is_local) {
+        alert('未检测到可用 API，已使用本地演示模式生成卡片。');
+    }
+
+    try {
+        refreshIcons();
     } finally {
         els.loadingIndicator.classList.add('hidden');
         els.btnGenerate.disabled = false;
@@ -590,7 +632,7 @@ ${combinedContent}`;
         renderCards();
         
     } catch (e) {
-        // Error handled
+        alert(`整合失败：${e.message || '请检查 API Key 或网络连接'}`);
     } finally {
         els.loadingIndicator.classList.add('hidden');
         els.loadingIndicator.querySelector('span').textContent = 'AI 正在为您提炼知识...';
