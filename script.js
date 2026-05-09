@@ -2,11 +2,8 @@
  * 抖音知识卡片 - 核心逻辑 (script.js)
  */
 
-// 初始化 Lucide 图标
-lucide.createIcons();
-
 // 全局状态
-let cards = JSON.parse(localStorage.getItem('douyin_cards') || '[]');
+let cards = loadCards();
 let currentCategory = '全部';
 let currentSearch = '';
 let selectedCards = new Set();
@@ -15,7 +12,48 @@ let currentFlashcardIndex = 0;
 
 // API 配置
 const API_URL = 'https://api.deepseek.com/chat/completions';
-let API_KEY = localStorage.getItem('deepseek_api_key') || '';
+const PROXY_API_URL = '/api/deepseek';
+let API_KEY = sessionStorage.getItem('deepseek_api_key') || '';
+
+function refreshIcons() {
+    if (window.lucide && typeof window.lucide.createIcons === 'function') {
+        window.lucide.createIcons();
+    }
+}
+
+function escapeHTML(value) {
+    return String(value ?? '').replace(/[&<>"']/g, (char) => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;'
+    }[char]));
+}
+
+function safeList(items) {
+    return Array.isArray(items) ? items : [];
+}
+
+function safeUrl(value) {
+    try {
+        const url = new URL(String(value || '').trim(), window.location.href);
+        return ['http:', 'https:'].includes(url.protocol) ? url.href : '';
+    } catch {
+        return '';
+    }
+}
+
+function loadCards() {
+    try {
+        const parsed = JSON.parse(localStorage.getItem('douyin_cards') || '[]');
+        return Array.isArray(parsed) ? parsed : [];
+    } catch (error) {
+        console.warn('本地卡片数据损坏，已重置为空列表。', error);
+        localStorage.removeItem('douyin_cards');
+        return [];
+    }
+}
 
 // DOM 元素库
 const els = {
@@ -65,6 +103,7 @@ let currentViewCardId = null;
 
 // 初始化
 function init() {
+    refreshIcons();
     renderCards();
     bindEvents();
 }
@@ -151,9 +190,13 @@ function bindEvents() {
     els.btnCloseSettings.addEventListener('click', () => els.settingsModal.classList.add('hidden'));
     els.btnSaveSettings.addEventListener('click', () => {
         API_KEY = els.apiKeyInput.value.trim();
-        localStorage.setItem('deepseek_api_key', API_KEY);
+        if (API_KEY) {
+            sessionStorage.setItem('deepseek_api_key', API_KEY);
+        } else {
+            sessionStorage.removeItem('deepseek_api_key');
+        }
         els.settingsModal.classList.add('hidden');
-        alert('API Key 已保存');
+        alert(API_KEY ? 'API Key 已保存到当前会话' : 'API Key 已清空');
     });
 }
 
@@ -194,18 +237,18 @@ function renderCards() {
         cardEl.className = `knowledge-card ${card.is_integrated ? 'integrated' : ''} ${card.is_todo && card.todo_status === '已完成' ? 'todo-completed' : ''}`;
         
         // 阻止复选框点击事件冒泡到卡片
-        const checkboxHtml = `<input type="checkbox" class="card-checkbox" data-id="${card.id}" ${selectedCards.has(card.id) ? 'checked' : ''}>`;
+        const checkboxHtml = `<input type="checkbox" class="card-checkbox" data-id="${escapeHTML(card.id)}" ${selectedCards.has(card.id) ? 'checked' : ''}>`;
         
         cardEl.innerHTML = `
             <div class="card-header">
-                <span class="card-badge">${card.is_integrated ? '整合' : (card.is_todo ? '待办' : card.category)}</span>
+                <span class="card-badge">${escapeHTML(card.is_integrated ? '整合' : (card.is_todo ? '待办' : card.category))}</span>
                 ${checkboxHtml}
             </div>
-            <h3 class="card-title">${card.title}</h3>
-            <p class="card-core">${card.core_point || card.summary || ''}</p>
+            <h3 class="card-title">${escapeHTML(card.title)}</h3>
+            <p class="card-core">${escapeHTML(card.core_point || card.summary || '')}</p>
             <div class="card-footer">
-                <span>${card.created_at}</span>
-                ${card.is_todo ? `<button class="btn btn-text btn-toggle-todo" data-id="${card.id}">${card.todo_status === '已完成' ? '撤销' : '完成'}</button>` : ''}
+                <span>${escapeHTML(card.created_at)}</span>
+                ${card.is_todo ? `<button class="btn btn-text btn-toggle-todo" data-id="${escapeHTML(card.id)}">${card.todo_status === '已完成' ? '撤销' : '完成'}</button>` : ''}
             </div>
         `;
         
@@ -260,41 +303,41 @@ function openCardDetail(card) {
         // 整合卡片布局
         contentHtml = `
             <span class="detail-badge">整合卡片</span>
-            <h2 class="detail-title">${card.title}</h2>
+            <h2 class="detail-title">${escapeHTML(card.title)}</h2>
             <div class="detail-section">
                 <h4>综合观点</h4>
-                <p>${card.summary}</p>
+                <p>${escapeHTML(card.summary)}</p>
             </div>
             <div class="detail-section">
                 <h4>多角度分析</h4>
                 <ul>
-                    ${(card.angles || []).map(a => `<li>${a}</li>`).join('')}
+                    ${safeList(card.angles).map(a => `<li>${escapeHTML(a)}</li>`).join('')}
                 </ul>
             </div>
             <div class="quote-section">
-                <strong>关键结论：</strong>${card.conclusion}
+                <strong>关键结论：</strong>${escapeHTML(card.conclusion)}
             </div>
         `;
     } else {
         // 普通卡片/待办卡片布局
         contentHtml = `
-            <span class="detail-badge">${card.category}</span>
-            <h2 class="detail-title">${card.title}</h2>
+            <span class="detail-badge">${escapeHTML(card.category)}</span>
+            <h2 class="detail-title">${escapeHTML(card.title)}</h2>
             <div class="detail-section">
                 <h4>核心观点</h4>
-                <p>${card.core_point}</p>
+                <p>${escapeHTML(card.core_point)}</p>
             </div>
             <div class="detail-section">
                 <h4>关键要点</h4>
                 <ul>
-                    ${(card.key_points || []).map(p => `<li>${p}</li>`).join('')}
+                    ${safeList(card.key_points).map(p => `<li>${escapeHTML(p)}</li>`).join('')}
                 </ul>
             </div>
-            ${card.quote ? `<div class="quote-section">"${card.quote}"</div>` : ''}
+            ${card.quote ? `<div class="quote-section">"${escapeHTML(card.quote)}"</div>` : ''}
             ${card.action ? `
             <div class="detail-section">
                 <h4>行动建议</h4>
-                <p>${card.action}</p>
+                <p>${escapeHTML(card.action)}</p>
             </div>` : ''}
         `;
     }
@@ -302,10 +345,12 @@ function openCardDetail(card) {
     els.modalBody.innerHTML = contentHtml;
     
     // 原视频链接按钮
-    if (card.video_link) {
-        els.modalSourceLink.href = card.video_link;
+    const sourceUrl = safeUrl(card.video_link);
+    if (sourceUrl) {
+        els.modalSourceLink.href = sourceUrl;
         els.modalSourceLink.classList.remove('hidden');
     } else {
+        els.modalSourceLink.removeAttribute('href');
         els.modalSourceLink.classList.add('hidden');
     }
     
@@ -317,7 +362,7 @@ function openCardDetail(card) {
     }
     
     els.cardModal.classList.remove('hidden');
-    lucide.createIcons();
+    refreshIcons();
 }
 
 // 加入待办功能
@@ -346,19 +391,17 @@ function handleAddTodo() {
 
 // 调用 API 辅助函数
 async function callDeepSeek(prompt) {
-    if (!API_KEY) {
-        alert('请先点击右上角设置图标配置 DeepSeek API Key！');
-        throw new Error('No API Key');
-    }
-    
     try {
-        const response = await fetch(API_URL, {
+        const useProxy = !API_KEY;
+        const headers = { 'Content-Type': 'application/json' };
+        if (!useProxy) {
+            headers.Authorization = `Bearer ${API_KEY}`;
+        }
+
+        const response = await fetch(useProxy ? PROXY_API_URL : API_URL, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${API_KEY}`
-            },
-            body: JSON.stringify({
+            headers,
+            body: JSON.stringify(useProxy ? { prompt } : {
                 model: 'deepseek-chat',
                 messages: [{ role: 'user', content: prompt }],
                 response_format: { type: 'json_object' } // 强制 JSON 返回
@@ -366,50 +409,41 @@ async function callDeepSeek(prompt) {
         });
         
         if (!response.ok) {
-            throw new Error(`API Error: ${response.status}`);
+            const errorPayload = await response.json().catch(() => ({}));
+            const message = errorPayload.error
+                || (useProxy && response.status === 404
+                ? '未检测到后端代理。请运行 server.js，或在设置里临时填写 API Key'
+                : response.status === 401
+                    ? 'API Key 无效或已过期'
+                    : response.status === 429
+                        ? 'API 请求过于频繁'
+                        : `DeepSeek API 返回 ${response.status}`);
+            throw new Error(message);
         }
         
         const data = await response.json();
-        let content = data.choices[0].message.content;
-        
-        // 尝试解析 JSON，处理可能的 markdown 包装
-        if (content.startsWith('```json')) {
-            content = content.replace(/```json\n?/, '').replace(/```$/, '');
+        let content = data?.content || data?.choices?.[0]?.message?.content;
+        if (!content) {
+            throw new Error('AI 返回内容为空');
         }
-        return JSON.parse(content);
+        
+        // 尝试解析 JSON，处理可能的 markdown 包装和前后说明文字
+        content = content.trim().replace(/^```(?:json)?\s*/i, '').replace(/```$/i, '').trim();
+        try {
+            return JSON.parse(content);
+        } catch {
+            const jsonMatch = content.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+                return JSON.parse(jsonMatch[0]);
+            }
+            throw new Error('AI 返回的内容不是有效 JSON');
+        }
         
     } catch (error) {
         console.error(error);
-        alert('AI 生成失败，请检查 API Key 或网络连接。');
+        alert(`AI 生成失败：${error.message || '请检查 API Key 或网络连接'}`);
         throw error;
     }
-}
-
-// 模拟获取链接内容的辅助函数（支持抖音和新闻链接模拟，用于黑客松演示）
-async function mockFetchTranscript(url, index = 0) {
-    let mockText = "";
-    
-    // 简单的模拟逻辑：判断URL中是否包含特定关键字
-    if (url.includes('news') || url.includes('article') || url.includes('163')) {
-        const newsMockTranscripts = [
-            `这是从新闻链接 ${url} 提取的文章内容：\n最新经济数据显示，今年一季度AI相关产业投资增长超过40%。专家指出，生成式AI不仅在科技圈火爆，更开始实质性地改变传统行业的生产流程，提升效率。`,
-            `这是从新闻链接 ${url} 提取的文章内容：\n多地出台新政策鼓励年轻人创业。政策主要集中在减免税收、提供低息贷款以及设立专项的创业孵化园区。政府希望以此激发市场活力。`
-        ];
-        mockText = newsMockTranscripts[index % newsMockTranscripts.length];
-    } else {
-        const douyinMockTranscripts = [
-            `这是从抖音链接 ${url} 提取的视频文案：\n大家好，今天给大家分享一个职场技巧。在汇报工作时，一定要遵循“结论先行”的原则。不要长篇大论说过程，领导只关心结果。第一步，先抛出你的核心结论；第二步，说明支撑结论的数据。`,
-            `这是从抖音链接 ${url} 提取的视频文案：\n为什么你的汇报领导总是不满意？因为你没有带着“方案”去汇报。遇到问题，不仅要说问题，还要给领导提供至少两个选择，并附上你推荐的方案。这叫带着思考工作。`,
-            `这是从抖音链接 ${url} 提取的视频文案：\n职场沟通中，情绪价值很重要。汇报坏消息时，先说你的应对措施，再说坏消息，最后表明需要什么帮助。这样领导觉得你是有担当的，而不是甩锅。`
-        ];
-        mockText = douyinMockTranscripts[index % douyinMockTranscripts.length];
-    }
-
-    return new Promise((resolve) => {
-        setTimeout(() => {
-            resolve(mockText);
-        }, 1000); // 稍微缩短时间，因为如果有多个链接会叠加
-    });
 }
 
 // 生成卡片
@@ -427,36 +461,23 @@ async function handleGenerateCard() {
     els.loadingIndicator.classList.remove('hidden');
     els.btnGenerate.disabled = true;
     
-    // 如果文本中包含多个链接，我们将其视为需要融合的多个信息源
-    // 即使文本中包含其他文字（如分享文案），只要有多个链接，我们就触发多源融合逻辑
-    let isMultiVideo = linkMatches.length > 1;
+    const linksLength = linkMatches.reduce((acc, link) => acc + link.length, 0);
+    const userTextWithoutLinks = text.replace(/https?:\/\/[^\s]+/g, '').trim();
+    const isMostlyLinks = linkMatches.length > 0 && text.length < linksLength + 80;
 
-    // 为了黑客松演示，如果只输入了链接（没有太多其他文字），我们用模拟文本替换它
-    let isMostlyLinks = false;
-    let linksLength = linkMatches.reduce((acc, link) => acc + link.length, 0);
-    if (linkMatches.length > 0 && text.length < linksLength + 150) { // 放宽一点限制，允许带有长分享文案
-        isMostlyLinks = true;
-    }
-
-    if (isMostlyLinks && linkMatches.length > 0) {
-        els.loadingIndicator.querySelector('span').textContent = `正在解析 ${linkMatches.length} 个链接内容...`;
-        
-        let combinedTranscripts = [];
-        for (let i = 0; i < linkMatches.length; i++) {
-            const transcript = await mockFetchTranscript(linkMatches[i], i);
-            combinedTranscripts.push(`【信息源 ${i+1}】\n${transcript}`);
-        }
-        // 如果用户原本输入里还有一些文字，我们把它也保留作为上下文
-        const userTextWithoutLinks = text.replace(/https?:\/\/[^\s]+/g, '').trim();
-        text = (userTextWithoutLinks ? `【用户原始输入描述】\n${userTextWithoutLinks}\n\n` : '') + combinedTranscripts.join('\n\n');
+    if (isMostlyLinks) {
+        alert('当前静态网页不能直接解析抖音/网页链接，请粘贴视频文案或正文内容后再生成。');
+        els.loadingIndicator.classList.add('hidden');
+        els.btnGenerate.disabled = false;
+        return;
     }
     
     els.loadingIndicator.querySelector('span').textContent = 'AI 正在为您提炼知识...';
     
     let prompt = "";
     
-    // 再次确认是否是多源融合（文本中是否已经被打上了信息源的标记，或者原本就有很多链接）
-    if (isMultiVideo || text.includes('【信息源 2】')) {
+    // 如果文本中包含多个链接以及对应说明文字，我们将其视为多源融合输入
+    if (linkMatches.length > 1) {
         // 多视频融合 Prompt
         prompt = `你是一个知识整合专家。用户提供了多个信息源（视频或文章）的内容，请你将它们融合成一张结构化的知识卡片。严格按JSON格式返回，不要返回任何其他文字，不要使用markdown格式。
 
@@ -591,7 +612,7 @@ function renderCurrentFlashcard() {
     els.fcCategory.textContent = card.category;
     els.fcTitle.textContent = card.title;
     els.fcCore.textContent = card.core_point;
-    els.fcPoints.innerHTML = (card.key_points || []).map(p => `<li>${p}</li>`).join('');
+    els.fcPoints.innerHTML = safeList(card.key_points).map(p => `<li>${escapeHTML(p)}</li>`).join('');
 }
 
 function nextFlashcard(remembered) {
@@ -630,13 +651,13 @@ async function handleExportImages() {
                 ${selectedCardsData.map(card => `
                     <div style="background: white; border-radius: 16px; padding: 24px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); border: 1px solid #e2e8f0;">
                         <div style="display: inline-block; background: #eff6ff; color: #2563eb; padding: 4px 12px; border-radius: 99px; font-size: 14px; margin-bottom: 12px; font-weight: bold;">
-                            ${card.is_integrated ? '整合' : card.category}
+                            ${escapeHTML(card.is_integrated ? '整合' : card.category)}
                         </div>
-                        <h2 style="font-size: 24px; margin-bottom: 16px; color: #0f172a;">${card.title}</h2>
-                        <p style="font-size: 16px; color: #334155; margin-bottom: 16px;">${card.core_point || card.summary}</p>
+                        <h2 style="font-size: 24px; margin-bottom: 16px; color: #0f172a;">${escapeHTML(card.title)}</h2>
+                        <p style="font-size: 16px; color: #334155; margin-bottom: 16px;">${escapeHTML(card.core_point || card.summary)}</p>
                         ${card.key_points ? `
                         <ul style="padding-left: 20px; color: #475569; font-size: 15px;">
-                            ${card.key_points.map(p => `<li style="margin-bottom: 8px;">${p}</li>`).join('')}
+                            ${safeList(card.key_points).map(p => `<li style="margin-bottom: 8px;">${escapeHTML(p)}</li>`).join('')}
                         </ul>` : ''}
                     </div>
                 `).join('')}
@@ -650,6 +671,9 @@ async function handleExportImages() {
     container.innerHTML = exportHtml;
     
     try {
+        if (typeof window.html2canvas !== 'function') {
+            throw new Error('图片导出库加载失败，请检查网络或稍后重试');
+        }
         const canvas = await html2canvas(container.firstElementChild, {
             scale: 2,
             useCORS: true,
@@ -663,7 +687,7 @@ async function handleExportImages() {
         
     } catch (e) {
         console.error('导出失败:', e);
-        alert('导出图片失败');
+        alert(`导出图片失败：${e.message || '未知错误'}`);
     } finally {
         container.classList.add('hidden');
         container.innerHTML = '';
@@ -675,7 +699,12 @@ async function handleExportImages() {
 
 // 辅助函数
 function saveCards() {
-    localStorage.setItem('douyin_cards', JSON.stringify(cards));
+    try {
+        localStorage.setItem('douyin_cards', JSON.stringify(cards));
+    } catch (error) {
+        console.error('保存卡片失败:', error);
+        alert('保存失败：浏览器本地存储空间不足或不可用。');
+    }
 }
 
 // 启动应用
