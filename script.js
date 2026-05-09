@@ -466,10 +466,7 @@ async function callDeepSeek(prompt) {
 }
 
 function createLocalCard(text, videoLink = '') {
-    const cleanedText = text
-        .replace(/https?:\/\/[^\s]+/g, '')
-        .replace(/\s+/g, ' ')
-        .trim();
+    const cleanedText = cleanSharedText(text);
     const source = cleanedText || text.trim();
     const sentences = source
         .split(/[。！？!?；;\n]/)
@@ -499,6 +496,24 @@ function createLocalCard(text, videoLink = '') {
     };
 }
 
+function cleanSharedText(text) {
+    let cleaned = String(text || '');
+    try {
+        cleaned = decodeURIComponent(cleaned);
+    } catch {
+        // Some shared links contain partial percent-encoding. Keep the original text.
+    }
+
+    return cleaned
+        .replace(/https?:\/\/[^\s]+/g, '')
+        .replace(/\{[^{}]*(schema_type|share_extra_params|social_share_user_id)[^{}]*\}/gi, '')
+        .replace(/["{}[\]]/g, ' ')
+        .replace(/\b(share_extra_params|schema_type|social_share_user_id|sec_uid|share_app_id)\b/gi, ' ')
+        .replace(/[A-Za-z0-9_%=-]{18,}/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
 // 生成卡片
 async function handleGenerateCard() {
     let text = els.videoInput.value.trim();
@@ -514,15 +529,9 @@ async function handleGenerateCard() {
     els.loadingIndicator.classList.remove('hidden');
     els.btnGenerate.disabled = true;
     
-    const linksLength = linkMatches.reduce((acc, link) => acc + link.length, 0);
-    const userTextWithoutLinks = text.replace(/https?:\/\/[^\s]+/g, '').trim();
-    const isMostlyLinks = linkMatches.length > 0 && text.length < linksLength + 80;
-
-    if (isMostlyLinks) {
-        alert('当前静态网页不能直接解析抖音/网页链接，请粘贴视频文案或正文内容后再生成。');
-        els.loadingIndicator.classList.add('hidden');
-        els.btnGenerate.disabled = false;
-        return;
+    const cleanedInput = cleanSharedText(text);
+    if (cleanedInput) {
+        text = cleanedInput;
     }
     
     els.loadingIndicator.querySelector('span').textContent = 'AI 正在为您提炼知识...';
