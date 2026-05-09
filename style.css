@@ -1186,6 +1186,185 @@ textarea::placeholder {
     top: 0;
 }
 
+/* 整合预览弹窗 */
+.integrate-preview-content {
+    max-width: 560px;
+    padding: var(--space-xl);
+}
+
+.integrate-preview-body {
+    margin: var(--space-lg) 0;
+}
+
+.integrate-preview-body .preview-card {
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--space-md);
+    margin-bottom: var(--space-md);
+}
+
+.integrate-preview-body .preview-card .card-badge {
+    margin-bottom: var(--space-sm);
+}
+
+.integrate-preview-body .preview-card h3 {
+    font-size: 18px;
+    margin-bottom: var(--space-sm);
+}
+
+.integrate-preview-body .preview-card p {
+    font-size: 14px;
+    color: var(--color-text-regular);
+    margin-bottom: var(--space-xs);
+}
+
+.integrate-preview-body .preview-card ul {
+    padding-left: var(--space-md);
+    font-size: 14px;
+    color: var(--color-text-regular);
+    line-height: 1.7;
+}
+
+.integrate-preview-body .source-cards-info {
+    font-size: 13px;
+    color: var(--color-text-muted);
+    margin-top: var(--space-sm);
+    padding-top: var(--space-sm);
+    border-top: 1px dashed var(--color-border);
+}
+
+/* 左右滑动复习弹窗 */
+.swipe-review-container {
+    width: 100%;
+    max-width: 420px;
+    height: 80vh;
+    max-height: 600px;
+    background: transparent;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    position: relative;
+    padding: 0 16px;
+}
+
+.swipe-review-close {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    z-index: 60;
+    background: rgba(255,255,255,0.9);
+    border-radius: 50%;
+    padding: 8px;
+    color: #fff;
+    backdrop-filter: blur(4px);
+}
+
+.swipe-review-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    color: #fff;
+    margin-bottom: var(--space-md);
+    font-family: var(--font-serif);
+}
+
+.swipe-review-header h3 {
+    color: #fff;
+}
+
+.swipe-review-scene {
+    width: 100%;
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+    touch-action: pan-y;
+}
+
+.swipe-review-card {
+    width: 100%;
+    min-height: 300px;
+    background: var(--color-surface);
+    border-radius: var(--radius-lg);
+    padding: var(--space-xl);
+    border: 1px solid var(--color-border);
+    box-shadow: var(--shadow-lg);
+    display: flex;
+    flex-direction: column;
+    position: absolute;
+    top: 0;
+    left: 0;
+    transition: transform 0.3s ease, opacity 0.3s ease;
+    user-select: none;
+    cursor: grab;
+}
+
+.swipe-review-card h2 {
+    font-size: 24px;
+    margin: var(--space-md) 0;
+    line-height: 1.4;
+}
+
+.swipe-review-card p {
+    font-size: 16px;
+    color: var(--color-text-regular);
+    margin-bottom: var(--space-md);
+    line-height: 1.7;
+}
+
+.swipe-review-card ul {
+    padding-left: var(--space-md);
+    font-size: 15px;
+    color: var(--color-text-regular);
+    line-height: 1.7;
+    flex: 1;
+}
+
+.swipe-review-card ul li {
+    margin-bottom: 8px;
+}
+
+.swipe-review-hint {
+    display: flex;
+    justify-content: space-between;
+    color: var(--color-text-muted);
+    font-size: 13px;
+    margin-top: auto;
+    padding-top: var(--space-md);
+    border-top: 1px solid var(--color-border);
+}
+
+.swipe-review-status {
+    color: #fff;
+    font-size: 15px;
+    margin-top: var(--space-md);
+    min-height: 24px;
+    text-align: center;
+    font-family: var(--font-serif);
+}
+
+/* 卡片滑动时的视觉反馈 */
+.swipe-review-card.swiping-right {
+    border-color: var(--color-success);
+    box-shadow: 0 0 0 2px rgba(59, 130, 86, 0.2);
+}
+
+.swipe-review-card.swiping-left {
+    border-color: var(--color-text-muted);
+    opacity: 0.7;
+}
+
+.swipe-review-card.fly-right {
+    transform: translateX(120%) rotate(15deg);
+    opacity: 0;
+}
+
+.swipe-review-card.fly-left {
+    transform: translateX(-120%) rotate(-15deg);
+    opacity: 0;
+}
+
 /* 响应式调整 */
 @media (max-width: 768px) {
     :root {

@@ -6,6 +6,10 @@
 let cards = [];
 let currentCategory = '全部';
 let currentSearch = '';
+let currentView = 'home'; // home | unread | read | favorites
+let pendingIntegrateResult = null; // 整合预览暂存
+let swipeReviewQueue = [];
+let swipeReviewIndex = 0;
 let selectedCards = new Set();
 let flashcardQueue = [];
 let currentFlashcardIndex = 0;
@@ -156,7 +160,27 @@ const els = {
     btnSettings: document.getElementById('btn-settings'),
     btnCloseSettings: document.getElementById('btn-close-settings'),
     apiKeyInput: document.getElementById('api-key-input'),
-    btnSaveSettings: document.getElementById('btn-save-settings')
+    btnSaveSettings: document.getElementById('btn-save-settings'),
+
+    // 整合预览弹窗
+    integratePreviewModal: document.getElementById('integrate-preview-modal'),
+    btnCloseIntegratePreview: document.getElementById('btn-close-integrate-preview'),
+    integratePreviewTitle: document.getElementById('integrate-preview-title'),
+    integratePreviewBody: document.getElementById('integrate-preview-body'),
+    btnCancelIntegrate: document.getElementById('btn-cancel-integrate'),
+    btnConfirmIntegrate: document.getElementById('btn-confirm-integrate'),
+
+    // 左右滑动复习
+    swipeReviewModal: document.getElementById('swipe-review-modal'),
+    btnCloseSwipeReview: document.getElementById('btn-close-swipe-review'),
+    swipeReviewScene: document.getElementById('swipe-review-scene'),
+    swipeReviewCard: document.getElementById('swipe-review-card'),
+    swipeReviewProgress: document.getElementById('swipe-review-progress'),
+    swipeReviewStatus: document.getElementById('swipe-review-status'),
+    srCategory: document.getElementById('sr-category'),
+    srTitle: document.getElementById('sr-title'),
+    srCore: document.getElementById('sr-core'),
+    srPoints: document.getElementById('sr-points')
 };
 
 // 当前操作的卡片 ID
@@ -164,10 +188,65 @@ let currentViewCardId = null;
 
 // 初始化
 function init() {
+    initDemoCards();
     refreshIcons();
     renderCards();
     renderDailyReview();
     bindEvents();
+}
+
+// 首次访问生成演示卡片
+function initDemoCards() {
+    if (localStorage.getItem('douyin_cards')) return;
+    const demoCards = [
+        {
+            id: 'demo_1',
+            title: '普通人如何理财',
+            core_point: '理财不是有钱人的专利，普通人更需要从小额定投开始，建立被动收入管道。',
+            key_points: ['先存后花，每月固定存 10%', '指数基金定投是懒人最优解', '远离高杠杆产品，保住本金最重要'],
+            quote: '你不理财，财不理你；但乱理财，财就离你。',
+            action: '今天就开始设置每月自动定投计划。',
+            category: '财经',
+            video_link: '',
+            created_at: new Date().toISOString().split('T')[0],
+            is_todo: false, is_integrated: false,
+            isRead: false, readAt: '',
+            isFavorite: false, isDemo: true,
+            customStyles: {}
+        },
+        {
+            id: 'demo_2',
+            title: 'AI 时代的核心能力',
+            core_point: 'AI 不会取代你，但会用 AI 的人会取代你。学会提问和判断，比学会操作更重要。',
+            key_points: ['学会给 AI 写好提示词', '培养批判性思维，验证 AI 输出', '把 AI 当副驾驶，不是自动驾驶'],
+            quote: '未来的文盲不是不识字的人，而是不会和 AI 协作的人。',
+            action: '选一个日常任务，尝试用 AI 工具完成。',
+            category: '科技',
+            video_link: '',
+            created_at: new Date().toISOString().split('T')[0],
+            is_todo: false, is_integrated: false,
+            isRead: false, readAt: '',
+            isFavorite: false, isDemo: true,
+            customStyles: {}
+        },
+        {
+            id: 'demo_3',
+            title: '高效睡眠的秘密',
+            core_point: '睡眠质量比时长更重要，90 分钟周期法和睡前仪式感是提升睡眠的关键。',
+            key_points: ['按 90 分钟倍数设定闹钟', '睡前 1 小时远离屏幕', '固定起床时间比固定入睡时间更重要'],
+            quote: '睡得好，才能活得好。',
+            action: '今晚试试 90 分钟周期法，设 7.5 小时睡眠。',
+            category: '生活',
+            video_link: '',
+            created_at: new Date().toISOString().split('T')[0],
+            is_todo: false, is_integrated: false,
+            isRead: false, readAt: '',
+            isFavorite: false, isDemo: true,
+            customStyles: {}
+        }
+    ];
+    cards = demoCards.map(normalizeCard);
+    saveCards();
 }
 
 // 绑定事件
@@ -267,6 +346,11 @@ function bindEvents() {
         els.btnSaveNotebook.addEventListener('click', saveNotebook);
     }
 
+    // 整合预览弹窗
+    els.btnCloseIntegratePreview.addEventListener('click', closeIntegratePreview);
+    els.btnCancelIntegrate.addEventListener('click', closeIntegratePreview);
+    els.btnConfirmIntegrate.addEventListener('click', confirmIntegrate);
+
     els.btnActionCancel.addEventListener('click', () => els.actionModal.classList.add('hidden'));
     els.btnActionDetail.addEventListener('click', () => {
         const card = cards.find(c => c.id === currentActionCardId);
@@ -276,6 +360,16 @@ function bindEvents() {
 
     els.btnReviewSkip.addEventListener('click', () => completeReviewCard(false));
     els.btnReviewDo.addEventListener('click', () => completeReviewCard(true));
+
+    // 点击今日复习卡片进入滑动复习模式
+    els.reviewCard.addEventListener('click', (e) => {
+        if (e.target.closest('.btn')) return; // 不拦截按钮点击
+        openSwipeReview();
+    });
+
+    // 滑动复习弹窗
+    els.btnCloseSwipeReview.addEventListener('click', closeSwipeReview);
+    bindSwipeReviewGestures();
     
     // 闪卡复习
     els.btnFlashcard.addEventListener('click', startFlashcardMode);
@@ -318,23 +412,21 @@ function bindEvents() {
             btn.classList.add('active');
 
             const action = btn.dataset.mobileAction;
-            if (action === 'compose') {
-                document.getElementById('compose-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                els.videoInput.focus({ preventScroll: true });
-            } else if (action === 'cards') {
-                currentCategory = '全部';
-                document.querySelectorAll('.category-tag').forEach(el => {
-                    el.classList.toggle('active', el.dataset.category === '全部');
-                });
-                els.searchInput.placeholder = '在【全部】中搜索...';
-                renderCards();
-                els.cardsContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            } else if (action === 'review') {
-                startFlashcardMode();
-            } else if (action === 'settings') {
-                els.apiKeyInput.value = API_KEY;
-                els.settingsModal.classList.remove('hidden');
+            currentView = action;
+            currentCategory = '全部';
+            document.querySelectorAll('.category-tag').forEach(el => {
+                el.classList.toggle('active', el.dataset.category === '全部');
+            });
+            els.searchInput.placeholder = '在【全部】中搜索...';
+
+            // 输入区只在首页显示
+            const composeSection = document.getElementById('compose-section');
+            if (composeSection) {
+                composeSection.style.display = action === 'home' ? '' : 'none';
             }
+
+            renderCards();
+            els.cardsContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
         });
     });
 }
@@ -342,17 +434,20 @@ function bindEvents() {
 // 渲染卡片列表
 function renderCards() {
     let filtered = cards;
-    updateCollectionTabState();
-    
-    // 1. 分类过滤
-    if (currentCategory === '收藏') {
-        filtered = filtered.filter(c => c.isFavorite);
-    } else if (currentCategory === '未读') {
-        filtered = filtered.filter(c => !c.isRead && !c.is_todo);
-    } else if (currentCategory === '已读') {
+
+    // 1. 底部导航状态过滤
+    if (currentView === 'unread') {
+        filtered = filtered.filter(c => !c.isRead);
+    } else if (currentView === 'read') {
         filtered = filtered.filter(c => c.isRead);
-    } else if (currentCategory !== '全部') {
-        filtered = filtered.filter(c => c.category === currentCategory && !c.is_todo);
+    } else if (currentView === 'favorites') {
+        filtered = filtered.filter(c => c.isFavorite);
+    }
+    // home: 不过滤状态，显示全部
+
+    // 2. 顶部内容分类过滤
+    if (currentCategory !== '全部') {
+        filtered = filtered.filter(c => c.category === currentCategory);
     }
     
     // 渲染
@@ -632,7 +727,7 @@ function renderDailyReview() {
             ? '今日复习完成'
             : '还没有Get任何卡片';
         els.reviewCore.textContent = gotCards.length
-            ? '今天加入复习池的卡片都已经复习过了。'
+            ? '今天加入复习池的卡片都已经复习过了。点击卡片进入复习模式。'
             : '还没有已读卡片，先打开详情页点击 Get it 吧！';
         els.btnReviewDo.classList.add('hidden');
         els.btnReviewSkip.classList.add('hidden');
@@ -649,6 +744,9 @@ function renderDailyReview() {
     els.btnReviewSkip.classList.remove('hidden');
     els.reviewCard.classList.remove('shattering', 'reviewing');
     els.reviewSection.classList.remove('hidden');
+    // 更新提示文字
+    const metaSpan = els.reviewCard.querySelector('.review-meta span');
+    if (metaSpan) metaSpan.textContent = `今日复习 · 点击进入滑动复习 (${available.length}张)`;
 }
 
 function completeReviewCard(withEffect) {
@@ -673,6 +771,113 @@ function completeReviewCard(withEffect) {
     } else {
         finish();
     }
+}
+
+// 左右滑动复习模式
+function openSwipeReview() {
+    swipeReviewQueue = cards.filter(c => c.isRead && !c.is_integrated);
+    if (swipeReviewQueue.length === 0) {
+        alert('还没有已读卡片，先去详情页点击 Get it 吧！');
+        return;
+    }
+    // 随机打乱顺序
+    for (let i = swipeReviewQueue.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [swipeReviewQueue[i], swipeReviewQueue[j]] = [swipeReviewQueue[j], swipeReviewQueue[i]];
+    }
+    swipeReviewIndex = 0;
+    els.swipeReviewModal.classList.remove('hidden');
+    renderSwipeReviewCard();
+}
+
+function closeSwipeReview() {
+    els.swipeReviewModal.classList.add('hidden');
+    els.swipeReviewStatus.textContent = '';
+    renderDailyReview();
+}
+
+function renderSwipeReviewCard() {
+    if (swipeReviewIndex >= swipeReviewQueue.length) {
+        els.swipeReviewStatus.textContent = '复习完成！';
+        els.swipeReviewCard.style.display = 'none';
+        setTimeout(closeSwipeReview, 1200);
+        return;
+    }
+    const card = swipeReviewQueue[swipeReviewIndex];
+    els.swipeReviewProgress.textContent = `${swipeReviewIndex + 1} / ${swipeReviewQueue.length}`;
+    els.srCategory.textContent = card.category || '未分类';
+    els.srTitle.textContent = card.title || '';
+    els.srCore.textContent = card.core_point || card.summary || '';
+    els.srPoints.innerHTML = safeList(card.key_points).map(p => `<li>${escapeHTML(p)}</li>`).join('');
+    els.swipeReviewCard.style.display = '';
+    els.swipeReviewCard.style.transform = '';
+    els.swipeReviewCard.style.opacity = '1';
+    els.swipeReviewCard.classList.remove('swiping-left', 'swiping-right', 'fly-left', 'fly-right');
+    els.swipeReviewStatus.textContent = '';
+    refreshIcons();
+}
+
+function bindSwipeReviewGestures() {
+    const scene = els.swipeReviewScene;
+    const card = els.swipeReviewCard;
+    let startX = 0, startY = 0, dx = 0, dragging = false;
+
+    scene.addEventListener('pointerdown', (e) => {
+        startX = e.clientX;
+        startY = e.clientY;
+        dx = 0;
+        dragging = true;
+        card.style.transition = 'none';
+        scene.setPointerCapture?.(e.pointerId);
+    });
+
+    scene.addEventListener('pointermove', (e) => {
+        if (!dragging) return;
+        dx = e.clientX - startX;
+        const dy = e.clientY - startY;
+        if (Math.abs(dy) > Math.abs(dx) * 1.5) return; // 纵向滑动为主则忽略
+        const rotate = dx * 0.05;
+        card.style.transform = `translateX(${dx}px) rotate(${rotate}deg)`;
+        card.classList.toggle('swiping-right', dx > 40);
+        card.classList.toggle('swiping-left', dx < -40);
+    });
+
+    scene.addEventListener('pointerup', () => {
+        if (!dragging) return;
+        dragging = false;
+        card.style.transition = '';
+        card.classList.remove('swiping-left', 'swiping-right');
+
+        if (dx > 80) {
+            // 右滑 → 记住了
+            card.classList.add('fly-right');
+            setTimeout(() => {
+                card.classList.remove('fly-right');
+                swipeReviewIndex++;
+                renderSwipeReviewCard();
+            }, 300);
+        } else if (dx < -80) {
+            // 左滑 → 跳过
+            card.classList.add('fly-left');
+            setTimeout(() => {
+                card.classList.remove('fly-left');
+                // 跳过的卡片放到队尾
+                const skipped = swipeReviewQueue.splice(swipeReviewIndex, 1)[0];
+                swipeReviewQueue.push(skipped);
+                renderSwipeReviewCard();
+            }, 300);
+        } else {
+            // 没滑够，回弹
+            card.style.transform = '';
+        }
+    });
+
+    scene.addEventListener('pointercancel', () => {
+        dragging = false;
+        card.style.transition = '';
+        card.style.transform = '';
+        card.classList.remove('swiping-left', 'swiping-right');
+    });
 }
 
 function getSameCategoryCards(card) {
@@ -1130,18 +1335,18 @@ ${text}`;
     }
 }
 
-// 整合卡片
+// 整合卡片 —— 第一步：调 AI 并预览
 async function handleIntegrateCards() {
     if (selectedCards.size < 2) return;
-    
+
     const selectedCardsData = cards.filter(c => selectedCards.has(c.id));
     const combinedContent = selectedCardsData.map(c => `标题：${c.title}\n观点：${c.core_point || c.summary}\n要点：${(c.key_points || c.angles || []).join('，')}`).join('\n\n');
     const categories = [...new Set(selectedCardsData.map(c => c.category).filter(Boolean))];
     const isCrossCategory = categories.length > 1;
-    
+
     els.loadingIndicator.querySelector('span').textContent = 'AI 正在为您整合多重视角...';
     els.loadingIndicator.classList.remove('hidden');
-    
+
     const prompt = isCrossCategory
         ? `你是一个创意整合专家。用户选择了以下不同领域的卡片，请将它们整合成一张充满想象力的创意卡片。
 
@@ -1170,39 +1375,80 @@ ${combinedContent}`;
 
     try {
         const result = await callDeepSeek(prompt);
-        
-        const integratedCard = {
-            id: 'int_' + Date.now(),
-            ...result,
-            summary: result.summary || result.scenario || result.core_point,
-            core_point: result.core_point || result.summary || result.scenario,
-            category: isCrossCategory ? '揉杂' : selectedCardsData[0].category,
-            created_at: new Date().toISOString().split('T')[0],
-            is_todo: false,
-            is_integrated: true,
-            isRead: false,
-            readAt: '',
-            isFavorite: false,
-            customStyles: {},
-            source_links: selectedCardsData.map(c => c.video_link).filter(Boolean)
+
+        // 暂存结果，等用户确认
+        pendingIntegrateResult = {
+            result,
+            selectedIds: new Set(selectedCards),
+            isCrossCategory,
+            category: isCrossCategory ? '揉杂' : selectedCardsData[0].category
         };
-        
-        if (!isCrossCategory) {
-            cards = cards.filter(c => !selectedCards.has(c.id));
-        }
-        cards.unshift(integratedCard);
-        saveCards();
-        
-        selectedCards.clear();
-        updateBatchActions();
-        renderCards();
-        
+
+        // 显示预览弹窗
+        const summary = result.summary || result.scenario || result.core_point || '';
+        const points = result.angles || result.key_points || [];
+        const conclusion = result.conclusion || '';
+
+        els.integratePreviewTitle.textContent = result.title || '整合结果';
+        els.integratePreviewBody.innerHTML = `
+            <div class="preview-card">
+                <span class="card-badge">${escapeHTML(pendingIntegrateResult.category)}</span>
+                <h3>${escapeHTML(result.title || '无标题')}</h3>
+                <p>${escapeHTML(summary)}</p>
+                ${points.length ? `<ul>${points.map(p => `<li>${escapeHTML(p)}</li>`).join('')}</ul>` : ''}
+                ${conclusion ? `<p><strong>结论：</strong>${escapeHTML(conclusion)}</p>` : ''}
+            </div>
+            <div class="source-cards-info">将整合 ${selectedCardsData.length} 张卡片</div>
+        `;
+        els.integratePreviewModal.classList.remove('hidden');
+        refreshIcons();
+
     } catch (e) {
         alert(`整合失败：${e.message || '请检查 API Key 或网络连接'}`);
     } finally {
         els.loadingIndicator.classList.add('hidden');
         els.loadingIndicator.querySelector('span').textContent = 'AI 正在为您提炼知识...';
     }
+}
+
+// 整合预览 —— 确认
+function confirmIntegrate() {
+    if (!pendingIntegrateResult) return;
+    const { result, selectedIds, isCrossCategory, category } = pendingIntegrateResult;
+
+    const integratedCard = {
+        id: 'int_' + Date.now(),
+        ...result,
+        summary: result.summary || result.scenario || result.core_point,
+        core_point: result.core_point || result.summary || result.scenario,
+        category,
+        created_at: new Date().toISOString().split('T')[0],
+        is_todo: false,
+        is_integrated: true,
+        isRead: false,
+        readAt: '',
+        isFavorite: false,
+        customStyles: {},
+        source_links: cards.filter(c => selectedIds.has(c.id)).map(c => c.video_link).filter(Boolean)
+    };
+
+    if (!isCrossCategory) {
+        cards = cards.filter(c => !selectedIds.has(c.id));
+    }
+    cards.unshift(integratedCard);
+    saveCards();
+
+    selectedCards.clear();
+    pendingIntegrateResult = null;
+    updateBatchActions();
+    renderCards();
+    els.integratePreviewModal.classList.add('hidden');
+}
+
+// 整合预览 —— 取消
+function closeIntegratePreview() {
+    pendingIntegrateResult = null;
+    els.integratePreviewModal.classList.add('hidden');
 }
 
 // 复习闪卡模式

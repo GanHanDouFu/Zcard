@@ -36,7 +36,7 @@
 
         <main class="main-content">
             <section id="review-section" class="review-section hidden">
-                <div class="review-card" id="review-card">
+                <div class="review-card" id="review-card" style="cursor:pointer">
                     <div class="review-meta">
                         <i data-lucide="book-marked"></i>
                         <span>今日复习</span>
@@ -49,6 +49,30 @@
                     </div>
                 </div>
             </section>
+
+            <!-- 左右滑动复习弹窗 -->
+            <div id="swipe-review-modal" class="modal hidden">
+                <div class="swipe-review-container">
+                    <button class="close-btn swipe-review-close" id="btn-close-swipe-review"><i data-lucide="x"></i></button>
+                    <div class="swipe-review-header">
+                        <h3>复习模式</h3>
+                        <span id="swipe-review-progress" class="progress">1 / 5</span>
+                    </div>
+                    <div class="swipe-review-scene" id="swipe-review-scene">
+                        <div class="swipe-review-card" id="swipe-review-card">
+                            <span class="card-badge" id="sr-category">领域</span>
+                            <h2 id="sr-title">卡片标题</h2>
+                            <p id="sr-core">核心观点</p>
+                            <ul id="sr-points"></ul>
+                            <div class="swipe-review-hint">
+                                <span>← 跳过</span>
+                                <span>记住了 →</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="swipe-review-status" id="swipe-review-status"></div>
+                </div>
+            </div>
 
             <!-- 输入区 -->
             <section class="input-section" id="compose-section">
@@ -68,15 +92,6 @@
             <section class="toolbar">
                 <div class="categories" id="category-list">
                     <button class="category-tag active" data-category="全部">全部</button>
-                    <button class="category-tag" data-category="收藏">
-                        <i data-lucide="star" class="sm-icon"></i> 收藏
-                    </button>
-                    <button class="category-tag" data-category="未读">
-                        <i data-lucide="circle" class="sm-icon"></i> 未读
-                    </button>
-                    <button class="category-tag" data-category="已读">
-                        <i data-lucide="check-circle" class="sm-icon"></i> 已读
-                    </button>
                     <button class="category-tag" data-category="生活">生活</button>
                     <button class="category-tag" data-category="职场">职场</button>
                     <button class="category-tag" data-category="学习">学习</button>
@@ -122,21 +137,21 @@
         </main>
 
         <nav class="bottom-nav" aria-label="底部导航">
-            <button class="bottom-nav-item active" data-mobile-action="cards">
-                <i data-lucide="layout-dashboard"></i>
-                <span>卡片</span>
+            <button class="bottom-nav-item active" data-mobile-action="home">
+                <i data-lucide="home"></i>
+                <span>首页</span>
             </button>
-            <button class="bottom-nav-item" data-mobile-action="compose">
-                <i data-lucide="plus-circle"></i>
-                <span>生成</span>
+            <button class="bottom-nav-item" data-mobile-action="unread">
+                <i data-lucide="circle"></i>
+                <span>未读</span>
             </button>
-            <button class="bottom-nav-item" data-mobile-action="review">
-                <i data-lucide="layers"></i>
-                <span>复习</span>
+            <button class="bottom-nav-item" data-mobile-action="read">
+                <i data-lucide="check-circle"></i>
+                <span>已读</span>
             </button>
-            <button class="bottom-nav-item" data-mobile-action="settings">
-                <i data-lucide="settings"></i>
-                <span>设置</span>
+            <button class="bottom-nav-item" data-mobile-action="favorites">
+                <i data-lucide="star"></i>
+                <span>收藏</span>
             </button>
         </nav>
     </div>
@@ -246,6 +261,22 @@
             </form>
             <div class="modal-footer">
                 <button id="btn-save-settings" class="btn btn-primary">保存设置</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 整合预览弹窗 -->
+    <div id="integrate-preview-modal" class="modal hidden">
+        <div class="modal-content integrate-preview-content">
+            <button class="close-btn" id="btn-close-integrate-preview"><i data-lucide="x"></i></button>
+            <span class="detail-badge">整合预览</span>
+            <h2 id="integrate-preview-title">整合后的卡片</h2>
+            <div id="integrate-preview-body" class="integrate-preview-body">
+                <!-- 预览内容动态填充 -->
+            </div>
+            <div class="modal-footer">
+                <button id="btn-cancel-integrate" class="btn btn-secondary">取消</button>
+                <button id="btn-confirm-integrate" class="btn btn-primary">确定整合</button>
             </div>
         </div>
     </div>
