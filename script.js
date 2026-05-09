@@ -21,6 +21,16 @@ let isEditingCard = false;
 let reviewRevealTimer = null;
 let activeEditField = 'core_point';
 
+// 检查 localStorage 是否可用
+let storageAvailable = true;
+try {
+    localStorage.setItem('__test__', '1');
+    localStorage.removeItem('__test__');
+} catch (e) {
+    storageAvailable = false;
+    console.warn('[Zcard] localStorage 不可用，将使用内存存储');
+}
+
 // API 配置
 const API_URL = 'https://api.deepseek.com/chat/completions';
 const PROXY_API_URL = '/api/deepseek';
@@ -89,7 +99,32 @@ function styleAttr(card, field) {
     return `style="font-size:${escapeHTML(styles.fontSize)};color:${escapeHTML(styles.color)};font-weight:${escapeHTML(styles.fontWeight || '400')};font-style:${escapeHTML(styles.fontStyle || 'normal')};text-decoration:${escapeHTML(styles.textDecoration || 'none')}"`;
 }
 
+function normalizeCategory(value) {
+    const raw = String(value || '').trim();
+    const categories = ['生活', '职场', '学习', '娱乐', '财经', '健康', '科技'];
+    if (categories.includes(raw)) return raw;
+    const lower = raw.toLowerCase();
+    const map = {
+        life: '生活',
+        work: '职场',
+        career: '职场',
+        study: '学习',
+        education: '学习',
+        learning: '学习',
+        entertainment: '娱乐',
+        finance: '财经',
+        health: '健康',
+        technology: '科技',
+        tech: '科技'
+    };
+    return map[lower] || '学习';
+}
+
 function loadCards() {
+    if (!storageAvailable) {
+        console.log('[Zcard] 使用内存存储（localStorage 不可用）');
+        return [];
+    }
     try {
         const parsed = JSON.parse(localStorage.getItem('douyin_cards') || '[]');
         return Array.isArray(parsed) ? parsed.map(normalizeCard) : [];
@@ -100,106 +135,104 @@ function loadCards() {
     }
 }
 
-// DOM 元素库
-const els = {
-    videoInput: document.getElementById('video-input'),
-    btnGenerate: document.getElementById('btn-generate'),
-    loadingIndicator: document.getElementById('loading-indicator'),
-    cardsContainer: document.getElementById('cards-container'),
-    emptyState: document.getElementById('empty-state'),
-    categoryList: document.getElementById('category-list'),
-    searchInput: document.getElementById('search-input'),
-    batchActions: document.getElementById('batch-actions'),
-    selectedNum: document.getElementById('selected-num'),
-    btnIntegrate: document.getElementById('btn-integrate'),
-    btnExport: document.getElementById('btn-export'),
-    btnCancelSelect: document.getElementById('btn-cancel-select'),
-    reviewSection: document.getElementById('review-section'),
-    reviewCard: document.getElementById('review-card'),
-    reviewTitle: document.getElementById('review-title'),
-    reviewCore: document.getElementById('review-core'),
-    btnReviewDo: document.getElementById('btn-review-do'),
-    btnReviewSkip: document.getElementById('btn-review-skip'),
-    btnClearSearch: document.getElementById('btn-clear-search'),
-    searchModal: document.getElementById('search-modal'),
-    btnCloseSearch: document.getElementById('btn-close-search'),
-    searchResults: document.getElementById('search-results'),
-    searchResultTitle: document.getElementById('search-result-title'),
-    searchResultCount: document.getElementById('search-result-count'),
-    actionModal: document.getElementById('action-modal'),
-    btnActionDetail: document.getElementById('btn-action-detail'),
-    btnActionDouyin: document.getElementById('btn-action-douyin'),
-    btnActionCancel: document.getElementById('btn-action-cancel'),
-    
-    // Modals
-    cardModal: document.getElementById('card-modal'),
-    modalBody: document.getElementById('modal-card-body'),
-    btnCloseModal: document.getElementById('btn-close-modal'),
-    btnDeleteCard: document.getElementById('btn-delete-card'),
-    btnAddTodo: document.getElementById('btn-add-todo'),
-    btnEditCard: document.getElementById('btn-edit-card'),
-    btnSaveCard: document.getElementById('btn-save-card'),
-    btnCancelEdit: document.getElementById('btn-cancel-edit'),
-    notebookModal: document.getElementById('notebook-modal'),
-    btnCloseNotebook: document.getElementById('btn-close-notebook'),
-    notebookInput: document.getElementById('notebook-input'),
-    btnSaveNotebook: document.getElementById('btn-save-notebook'),
-    
-    flashcardModal: document.getElementById('flashcard-modal'),
-    btnFlashcard: document.getElementById('btn-flashcard'),
-    btnCloseFlashcard: document.getElementById('btn-close-flashcard'),
-    flashcardElement: document.getElementById('flashcard-element'),
-    fcActions: document.getElementById('flashcard-actions'),
-    fcTitle: document.getElementById('fc-title'),
-    fcCore: document.getElementById('fc-core'),
-    fcPoints: document.getElementById('fc-points'),
-    fcCategory: document.getElementById('fc-category'),
-    fcProgress: document.getElementById('flashcard-progress'),
-    btnFcForget: document.getElementById('btn-fc-forget'),
-    btnFcRemember: document.getElementById('btn-fc-remember'),
-    
-    settingsModal: document.getElementById('settings-modal'),
-    btnSettings: document.getElementById('btn-settings'),
-    btnCloseSettings: document.getElementById('btn-close-settings'),
-    apiKeyInput: document.getElementById('api-key-input'),
-    btnSaveSettings: document.getElementById('btn-save-settings'),
-
-    // 整合预览弹窗
-    integratePreviewModal: document.getElementById('integrate-preview-modal'),
-    btnCloseIntegratePreview: document.getElementById('btn-close-integrate-preview'),
-    integratePreviewTitle: document.getElementById('integrate-preview-title'),
-    integratePreviewBody: document.getElementById('integrate-preview-body'),
-    btnCancelIntegrate: document.getElementById('btn-cancel-integrate'),
-    btnConfirmIntegrate: document.getElementById('btn-confirm-integrate'),
-
-    // 左右滑动复习
-    swipeModal: document.getElementById('swipe-review-modal'),
-    btnCloseSwipeReview: document.getElementById('btn-close-swipe-review'),
-    swipeScene: document.getElementById('swipe-review-scene'),
-    swipeCard: document.getElementById('swipe-review-card'),
-    swipeProgress: document.getElementById('swipe-review-progress'),
-    swipeArrowLeft: document.getElementById('swipe-arrow-left'),
-    swipeArrowRight: document.getElementById('swipe-arrow-right'),
-    swipeDone: document.getElementById('swipe-done'),
-    swipeStatUnderstood: document.getElementById('swipe-stat-understood'),
-    swipeStatConfused: document.getElementById('swipe-stat-confused'),
-    btnSwipeDoneClose: document.getElementById('btn-swipe-done-close'),
-    srCategory: document.getElementById('sr-category'),
-    srTitle: document.getElementById('sr-title'),
-    srCore: document.getElementById('sr-core'),
-    srPoints: document.getElementById('sr-points')
-};
+// DOM 元素库 (延迟加载)
+const els = {};
 
 // 当前操作的卡片 ID
 let currentViewCardId = null;
 
 // 初始化
 function init() {
-    initDemoCards();
-    refreshIcons();
-    renderCards();
+    console.log('[Zcard] init 开始');
+    
+    // 延迟获取 DOM 元素
+    els.videoInput = document.getElementById('video-input');
+    els.btnGenerate = document.getElementById('btn-generate');
+    els.loadingIndicator = document.getElementById('loading-indicator');
+    els.cardsContainer = document.getElementById('cards-container');
+    els.emptyState = document.getElementById('empty-state');
+    els.categoryList = document.getElementById('category-list');
+    els.searchInput = document.getElementById('search-input');
+    els.batchActions = document.getElementById('batch-actions');
+    els.selectedNum = document.getElementById('selected-num');
+    els.btnIntegrate = document.getElementById('btn-integrate');
+    els.btnExport = document.getElementById('btn-export');
+    els.btnCancelSelect = document.getElementById('btn-cancel-select');
+    els.reviewSection = document.getElementById('review-section');
+    els.reviewCard = document.getElementById('review-card');
+    els.reviewTitle = document.getElementById('review-title');
+    els.reviewCore = document.getElementById('review-core');
+    els.btnReviewDo = document.getElementById('btn-review-do');
+    els.btnReviewSkip = document.getElementById('btn-review-skip');
+    els.btnClearSearch = document.getElementById('btn-clear-search');
+    els.searchModal = document.getElementById('search-modal');
+    els.btnCloseSearch = document.getElementById('btn-close-search');
+    els.searchResults = document.getElementById('search-results');
+    els.searchResultTitle = document.getElementById('search-result-title');
+    els.searchResultCount = document.getElementById('search-result-count');
+    els.actionModal = document.getElementById('action-modal');
+    els.btnActionDetail = document.getElementById('btn-action-detail');
+    els.btnActionDouyin = document.getElementById('btn-action-douyin');
+    els.btnActionCancel = document.getElementById('btn-action-cancel');
+    els.cardModal = document.getElementById('card-modal');
+    els.modalBody = document.getElementById('modal-card-body');
+    els.btnCloseModal = document.getElementById('btn-close-modal');
+    els.btnDeleteCard = document.getElementById('btn-delete-card');
+    els.btnAddTodo = document.getElementById('btn-add-todo');
+    els.btnEditCard = document.getElementById('btn-edit-card');
+    els.btnSaveCard = document.getElementById('btn-save-card');
+    els.btnCancelEdit = document.getElementById('btn-cancel-edit');
+    els.notebookModal = document.getElementById('notebook-modal');
+    els.btnCloseNotebook = document.getElementById('btn-close-notebook');
+    els.notebookInput = document.getElementById('notebook-input');
+    els.btnSaveNotebook = document.getElementById('btn-save-notebook');
+    els.flashcardModal = document.getElementById('flashcard-modal');
+    els.btnFlashcard = document.getElementById('btn-flashcard');
+    els.btnCloseFlashcard = document.getElementById('btn-close-flashcard');
+    els.flashcardElement = document.getElementById('flashcard-element');
+    els.fcActions = document.getElementById('flashcard-actions');
+    els.fcTitle = document.getElementById('fc-title');
+    els.fcCore = document.getElementById('fc-core');
+    els.fcPoints = document.getElementById('fc-points');
+    els.fcCategory = document.getElementById('fc-category');
+    els.fcProgress = document.getElementById('flashcard-progress');
+    els.btnFcForget = document.getElementById('btn-fc-forget');
+    els.btnFcRemember = document.getElementById('btn-fc-remember');
+    els.settingsModal = document.getElementById('settings-modal');
+    els.btnSettings = document.getElementById('btn-settings');
+    els.btnCloseSettings = document.getElementById('btn-close-settings');
+    els.apiKeyInput = document.getElementById('api-key-input');
+    els.btnSaveSettings = document.getElementById('btn-save-settings');
+    els.integratePreviewModal = document.getElementById('integrate-preview-modal');
+    els.btnCloseIntegratePreview = document.getElementById('btn-close-integrate-preview');
+    els.integratePreviewTitle = document.getElementById('integrate-preview-title');
+    els.integratePreviewBody = document.getElementById('integrate-preview-body');
+    els.btnCancelIntegrate = document.getElementById('btn-cancel-integrate');
+    els.btnConfirmIntegrate = document.getElementById('btn-confirm-integrate');
+    els.swipeModal = document.getElementById('swipe-review-modal');
+    els.btnCloseSwipeReview = document.getElementById('btn-close-swipe-review');
+    els.swipeScene = document.getElementById('swipe-review-scene');
+    els.swipeCard = document.getElementById('swipe-review-card');
+    els.swipeProgress = document.getElementById('swipe-review-progress');
+    els.swipeArrowLeft = document.getElementById('swipe-arrow-left');
+    els.swipeArrowRight = document.getElementById('swipe-arrow-right');
+    els.swipeDone = document.getElementById('swipe-done');
+    els.swipeStatUnderstood = document.getElementById('swipe-stat-understood');
+    els.swipeStatConfused = document.getElementById('swipe-stat-confused');
+    els.btnSwipeDoneClose = document.getElementById('btn-swipe-done-close');
+    els.srCategory = document.getElementById('sr-category');
+    els.srTitle = document.getElementById('sr-title');
+    els.srCore = document.getElementById('sr-core');
+    els.srPoints = document.getElementById('sr-points');
+    
+    initDemoCards();  // 先初始化演示卡片
+    renderCards();    // 再渲染
+    refreshIcons();   // 初始化 Lucide 图标
     renderDailyReview();
     bindEvents();
+    console.log('[Zcard] init 完成, cards 数量:', cards.length);
+    console.log('[Zcard] cardsContainer innerHTML 长度:', els.cardsContainer.innerHTML.length);
+    console.log('[Zcard] cardsContainer children:', els.cardsContainer.children.length);
 }
 
 // 首次访问生成演示卡片
@@ -380,7 +413,7 @@ function bindEvents() {
     bindSwipeReviewGestures();
     
     // 闪卡复习
-    els.btnFlashcard.addEventListener('click', startFlashcardMode);
+    if (els.btnFlashcard) els.btnFlashcard.addEventListener('click', startFlashcardMode);
     els.btnCloseFlashcard.addEventListener('click', () => {
         els.flashcardModal.classList.add('hidden');
     });
@@ -461,7 +494,10 @@ function renderCards() {
     // 渲染
     els.cardsContainer.innerHTML = '';
     
+    console.log('[Zcard] renderCards: 过滤后卡片数量:', filtered.length);
+    
     if (filtered.length === 0) {
+        console.log('[Zcard] 显示空状态');
         els.emptyState.classList.remove('hidden');
         els.cardsContainer.appendChild(els.emptyState);
         return;
@@ -472,6 +508,7 @@ function renderCards() {
     filtered.forEach(card => {
         const cardEl = document.createElement('div');
         normalizeCard(card);
+        cardEl.dataset.cardId = card.id;
         cardEl.className = `knowledge-card-wrap ${card.is_integrated ? 'integrated' : ''} ${card.isFavorite ? 'got-card' : ''} ${card.isRead ? 'read-card' : ''} ${card.is_todo && card.todo_status === '已完成' ? 'todo-completed' : ''}`;
         const canIntegrate = getSameCategoryCards(card).length >= 2 && !card.is_integrated;
         
@@ -549,6 +586,29 @@ function renderCards() {
         els.cardsContainer.appendChild(cardEl);
     });
     refreshIcons();
+}
+
+function focusGeneratedCard(cardId) {
+    const scheduleFrame = window.requestAnimationFrame || ((callback) => window.setTimeout(callback, 0));
+    scheduleFrame(() => {
+        scheduleFrame(() => {
+            const newCardEl = Array.from(els.cardsContainer.children)
+                .find((item) => item.dataset.cardId === cardId);
+            const scroller = document.querySelector('.main-content') || document.scrollingElement || document.documentElement;
+            if (!newCardEl || !scroller) return;
+
+            const scrollerRect = scroller.getBoundingClientRect();
+            const cardRect = newCardEl.getBoundingClientRect();
+            const targetTop = scroller.scrollTop + cardRect.top - scrollerRect.top - 12;
+            scroller.scrollTo({
+                top: Math.max(0, targetTop),
+                behavior: 'smooth'
+            });
+            newCardEl.classList.add('is-new');
+            window.setTimeout(() => newCardEl.classList.remove('is-new'), 1800);
+            console.log('[Zcard] 已滚动到新卡片:', cardId);
+        });
+    });
 }
 
 function cardMatchesSearch(card, keyword) {
@@ -1191,57 +1251,85 @@ function playGetAnimation() {
 
 // 调用 API 辅助函数
 async function callDeepSeek(prompt) {
-    try {
-        const useProxy = !API_KEY;
-        const headers = { 'Content-Type': 'application/json' };
-        if (!useProxy) {
-            headers.Authorization = `Bearer ${API_KEY}`;
-        }
+    console.log('[Zcard] callDeepSeek 开始');
+    const directBody = JSON.stringify({
+        model: 'deepseek-chat',
+        messages: [{ role: 'user', content: prompt }],
+        response_format: { type: 'json_object' }
+    });
 
-        const response = await fetch(useProxy ? PROXY_API_URL : API_URL, {
+    // 带超时的 fetch 封装
+    const fetchWithTimeout = (url, options, timeoutMs = 30000) => {
+        return Promise.race([
+            fetch(url, options),
+            new Promise((_, reject) =>
+                setTimeout(() => reject(new Error(`请求超时 (${timeoutMs}ms)`)), timeoutMs)
+            )
+        ]);
+    };
+
+    // 1. 先尝试代理
+    try {
+        console.log('[Zcard] 尝试代理请求...');
+        const proxyRes = await fetchWithTimeout(PROXY_API_URL, {
             method: 'POST',
-            headers,
-            body: JSON.stringify(useProxy ? { prompt } : {
-                model: 'deepseek-chat',
-                messages: [{ role: 'user', content: prompt }],
-                response_format: { type: 'json_object' } // 强制 JSON 返回
-            })
-        });
-        
-        if (!response.ok) {
-            const errorPayload = await response.json().catch(() => ({}));
-            const message = errorPayload.error
-                || (useProxy && response.status === 404
-                ? '未检测到后端代理。请运行 server.js，或在设置里临时填写 API Key'
-                : response.status === 401
-                    ? 'API Key 无效或已过期'
-                    : response.status === 429
-                        ? 'API 请求过于频繁'
-                        : `DeepSeek API 返回 ${response.status}`);
-            throw new Error(message);
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt })
+        }, 35000);
+        console.log('[Zcard] 代理响应状态:', proxyRes.status);
+        if (proxyRes.ok) {
+            const data = await proxyRes.json();
+            console.log('[Zcard] 代理返回数据:', JSON.stringify(data).substring(0, 100));
+            const content = data?.content || data?.choices?.[0]?.message?.content;
+            if (content) return parseAIContent(content);
+        } else {
+            const errData = await proxyRes.json().catch(() => ({}));
+            console.warn('[Zcard] 代理返回错误:', errData.error || proxyRes.status);
         }
-        
-        const data = await response.json();
-        let content = data?.content || data?.choices?.[0]?.message?.content;
-        if (!content) {
-            throw new Error('AI 返回内容为空');
+    } catch (e) {
+        console.warn('[Zcard] 代理请求失败:', e.message);
+    }
+
+    // 2. 代理失败，回退到前端直连
+    if (API_KEY) {
+        const directRes = await fetchWithTimeout(API_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${API_KEY}`
+            },
+            body: directBody
+        }, 30000);
+        if (!directRes.ok) {
+            const err = await directRes.json().catch(() => ({}));
+            const msg = err?.error
+                || (directRes.status === 401 ? 'API Key 无效或已过期'
+                    : directRes.status === 429 ? 'API 请求过于频繁'
+                    : `DeepSeek API 返回 ${directRes.status}`);
+            throw new Error(msg);
         }
-        
-        // 尝试解析 JSON，处理可能的 markdown 包装和前后说明文字
-        content = content.trim().replace(/^```(?:json)?\s*/i, '').replace(/```$/i, '').trim();
-        try {
-            return JSON.parse(content);
-        } catch {
-            const jsonMatch = content.match(/\{[\s\S]*\}/);
-            if (jsonMatch) {
-                return JSON.parse(jsonMatch[0]);
-            }
-            throw new Error('AI 返回的内容不是有效 JSON');
+        const data = await directRes.json();
+        const content = data?.choices?.[0]?.message?.content;
+        if (content) return parseAIContent(content);
+        throw new Error('AI 返回内容为空');
+    }
+
+    throw new Error('未检测到后端代理。请运行 server.js，或在设置里填写 API Key');
+}
+
+function parseAIContent(content) {
+    content = content.trim().replace(/^```(?:json)?\s*/i, '').replace(/```$/i, '').trim();
+    console.log('[Zcard] AI 原始返回内容:', content);
+    try {
+        return JSON.parse(content);
+    } catch (e) {
+        console.error('[Zcard] JSON 解析失败:', e.message);
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+            console.log('[Zcard] 尝试从内容中提取 JSON');
+            return JSON.parse(jsonMatch[0]);
         }
-        
-    } catch (error) {
-        console.error(error);
-        throw error;
+        throw new Error('AI 返回的内容不是有效 JSON: ' + content.substring(0, 100));
     }
 }
 
@@ -1300,11 +1388,13 @@ function cleanSharedText(text) {
 
 // 生成卡片
 async function handleGenerateCard() {
+    console.log('[Zcard] handleGenerateCard 被调用');
     let text = els.videoInput.value.trim();
     if (!text) {
         alert('请先输入视频文案或链接');
         return;
     }
+    console.log('[Zcard] 输入内容:', text.substring(0, 50));
     
     // 提取所有可能的链接（支持多个链接）
     const linkMatches = text.match(/https?:\/\/[^\s]+/g) || [];
@@ -1312,14 +1402,16 @@ async function handleGenerateCard() {
     
     els.loadingIndicator.classList.remove('hidden');
     els.btnGenerate.disabled = true;
-    
+    console.log('[Zcard] loading 显示完毕');
+
     const cleanedInput = cleanSharedText(text);
     if (cleanedInput) {
         text = cleanedInput;
     }
-    
+    console.log('[Zcard] 文本清洗完毕, 长度:', text.length);
+
     els.loadingIndicator.querySelector('span').textContent = 'AI 正在为您提炼知识...';
-    
+
     let prompt = "";
     
     // 如果文本中包含多个链接以及对应说明文字，我们将其视为多源融合输入
@@ -1328,7 +1420,12 @@ async function handleGenerateCard() {
         prompt = `你是一个知识整合专家。用户提供了多个信息源（视频或文章）的内容，请你将它们融合成一张结构化的知识卡片。严格按JSON格式返回，不要返回任何其他文字，不要使用markdown格式。
 
 返回格式：
-{"title": "综合提炼的标题（10字以内）", "core_point": "综合核心观点（一句话总结这几个信息源的共性）", "key_points": ["观点一：xxx（来自信息源1）", "观点二：xxx（来自信息源2）", "观点三：xxx（综合分析）"], "quote": "最精彩的一句金句", "action": "行动建议", "category": "从以下选择：生活/职场/学习/娱乐/财经/健康/科技"}
+{"title": "综合提炼的标题（10字以内）", "core_point": "综合核心观点（一句话总结这几个信息源的共性）", "key_points": ["观点一：xxx（来自信息源1）", "观点二：xxx（来自信息源2）", "观点三：xxx（综合分析）"], "quote": "最精彩的一句金句", "action": "行动建议", "category": "生活"}
+
+字段要求：
+1. 所有字段必须使用中文。
+2. category 必须且只能是以下之一：生活、职场、学习、娱乐、财经、健康、科技。
+3. 如果内容只有链接、缺少正文，请根据链接附近的分享文案提炼，不要说无法访问链接。
 
 视频内容如下：
 ${text}`;
@@ -1336,7 +1433,12 @@ ${text}`;
         // 单视频 Prompt
         prompt = `你是一个视频内容分析专家。请对以下抖音视频内容进行结构化总结，严格按JSON格式返回，不要返回任何其他文字，不要使用markdown格式：
 
-{"title": "标题（10字以内）", "core_point": "核心观点（一句话）", "key_points": ["要点1", "要点2", "要点3"], "quote": "金句", "action": "行动建议", "category": "从以下选择：生活/职场/学习/娱乐/财经/健康/科技"}
+{"title": "标题（10字以内）", "core_point": "核心观点（一句话）", "key_points": ["要点1", "要点2", "要点3"], "quote": "金句", "action": "行动建议", "category": "学习"}
+
+字段要求：
+1. 所有字段必须使用中文。
+2. category 必须且只能是以下之一：生活、职场、学习、娱乐、财经、健康、科技。
+3. 如果内容只有链接、缺少正文，请根据链接附近的分享文案提炼，不要说无法访问链接。
 
 视频内容：
 ${text}`;
@@ -1344,9 +1446,11 @@ ${text}`;
 
     let result;
     try {
+        console.log('[Zcard] 开始调用 API...');
         result = await callDeepSeek(prompt);
+        console.log('[Zcard] API 调用成功:', JSON.stringify(result).substring(0, 80));
     } catch (error) {
-        console.warn('AI 调用失败，已使用本地演示模式生成卡片。', error);
+        console.warn('[Zcard] AI 调用失败，已使用本地演示模式生成卡片。', error);
         result = createLocalCard(text, videoLink);
     }
         
@@ -1354,6 +1458,7 @@ ${text}`;
         id: 'card_' + Date.now(),
         ...result,
         video_link: result.video_link || videoLink,
+        category: normalizeCategory(result.category),
         created_at: new Date().toISOString().split('T')[0],
         is_todo: false,
         is_integrated: false,
@@ -1367,12 +1472,26 @@ ${text}`;
     saveCards();
     
     els.videoInput.value = '';
+    currentView = 'home';
     currentCategory = '全部';
+    currentSearch = '';
+    els.searchInput.value = '';
+    els.btnClearSearch.classList.add('hidden');
+    closeSearchResults();
+    document.querySelectorAll('[data-mobile-action]').forEach((item) => {
+        item.classList.toggle('active', item.dataset.mobileAction === 'home');
+    });
     document.querySelectorAll('.category-tag').forEach(el => {
         el.classList.toggle('active', el.dataset.category === '全部');
     });
+    els.searchInput.placeholder = '在【全部】中搜索...';
+    const composeSection = document.getElementById('compose-section');
+    if (composeSection) {
+        composeSection.style.display = '';
+    }
     renderCards();
     renderDailyReview();
+    focusGeneratedCard(newCard.id);
     
     if (result.is_local) {
         alert('未检测到可用 API，已使用本地演示模式生成卡片。');
@@ -1621,6 +1740,10 @@ async function handleExportImages() {
 
 // 辅助函数
 function saveCards() {
+    if (!storageAvailable) {
+        console.log('[Zcard] 卡片保存在内存中（刷新页面会丢失，因为 localStorage 不可用）');
+        return;
+    }
     try {
         localStorage.setItem('douyin_cards', JSON.stringify(cards));
     } catch (error) {
@@ -1630,4 +1753,8 @@ function saveCards() {
 }
 
 // 启动应用
-init();
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+} else {
+    init();
+}

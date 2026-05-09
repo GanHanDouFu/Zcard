@@ -202,7 +202,51 @@ a:hover {
 }
 
 .bottom-nav {
-    display: none;
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+    padding: 10px 16px;
+    background-color: var(--color-surface);
+    border-top: 1px solid var(--color-border);
+    position: sticky;
+    bottom: 0;
+    z-index: 20;
+}
+
+.bottom-nav-item {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 8px 16px;
+    border: 0;
+    border-radius: var(--radius-md);
+    background: transparent;
+    color: var(--color-text-muted);
+    font-family: var(--font-sans);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: color 0.2s, background-color 0.2s;
+}
+
+.bottom-nav-item i {
+    width: 20px;
+    height: 20px;
+}
+
+.bottom-nav-item:hover {
+    background-color: var(--color-secondary);
+}
+
+.bottom-nav-item.active {
+    color: var(--color-primary);
+    background-color: var(--color-secondary);
+}
+
+.bottom-nav-item.active i {
+    stroke-width: 2.4;
 }
 
 .main-content {
@@ -586,6 +630,25 @@ textarea::placeholder {
     box-shadow: var(--shadow-card-hover);
     transform: translateY(-2px);
     border-color: #d4d0c8;
+}
+
+.knowledge-card-wrap.is-new .knowledge-card {
+    animation: newCardPulse 1.6s ease;
+}
+
+@keyframes newCardPulse {
+    0% {
+        border-color: rgba(196, 124, 91, 0.75);
+        box-shadow: 0 0 0 0 rgba(196, 124, 91, 0.26);
+    }
+    45% {
+        border-color: rgba(196, 124, 91, 0.75);
+        box-shadow: 0 0 0 8px rgba(196, 124, 91, 0);
+    }
+    100% {
+        border-color: var(--color-border);
+        box-shadow: none;
+    }
 }
 
 /* 整合卡片特殊样式 */
@@ -1324,7 +1387,7 @@ textarea::placeholder {
     touch-action: pan-y;
 }
 
-.swipe-card {
+.swipe-scene > .swipe-card {
     position: absolute;
     inset: 0;
     background: rgba(255, 255, 255, 0.92);
@@ -1397,7 +1460,7 @@ textarea::placeholder {
 }
 
 /* 滑动时卡片变色 */
-.swipe-card.swiping-left {
+.swipe-scene > .swipe-card.swiping-left {
     border-color: rgba(52, 199, 89, 0.35);
     box-shadow:
         0 0 0 1px rgba(52, 199, 89, 0.12),
@@ -1405,7 +1468,7 @@ textarea::placeholder {
         0 24px 48px -8px rgba(52, 199, 89, 0.1) !important;
 }
 
-.swipe-card.swiping-right {
+.swipe-scene > .swipe-card.swiping-right {
     border-color: rgba(255, 59, 48, 0.3);
     box-shadow:
         0 0 0 1px rgba(255, 59, 48, 0.1),
