@@ -16,7 +16,8 @@ let isEditingCard = false;
 // API 配置
 const API_URL = 'https://api.deepseek.com/chat/completions';
 const PROXY_API_URL = '/api/deepseek';
-let API_KEY = sessionStorage.getItem('deepseek_api_key') || '';
+const DEFAULT_DEMO_API_KEY = 'sk-4591f6e3f254426abe448bfc21e6d86d';
+let API_KEY = sessionStorage.getItem('deepseek_api_key') || DEFAULT_DEMO_API_KEY;
 
 function refreshIcons() {
     if (window.lucide && typeof window.lucide.createIcons === 'function') {
