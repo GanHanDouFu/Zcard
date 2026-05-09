@@ -175,11 +175,11 @@
         <div class="modal-content settings-content">
             <button class="close-btn" id="btn-close-settings"><i data-lucide="x"></i></button>
             <h2>设置</h2>
-            <div class="settings-form">
+            <form class="settings-form" autocomplete="off" onsubmit="return false;">
                 <label for="api-key-input">DeepSeek API Key</label>
                 <input type="password" id="api-key-input" placeholder="sk-...">
                 <p class="help-text">静态演示版会从浏览器直连 DeepSeek，API Key 仅保存在当前标签页会话中；正式上线请改用后端代理。</p>
-            </div>
+            </form>
             <div class="modal-footer">
                 <button id="btn-save-settings" class="btn btn-primary">保存设置</button>
             </div>
