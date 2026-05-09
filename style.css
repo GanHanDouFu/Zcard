@@ -815,42 +815,48 @@ textarea::placeholder {
     color: var(--color-text-muted);
 }
 
-.edit-toolbar {
+.edit-dock {
+    position: sticky;
+    bottom: 0;
+    z-index: 5;
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-    padding: 6px;
+    gap: 8px;
+    padding: 8px;
+    margin-top: 4px;
     border: 1px solid var(--color-border);
-    border-radius: 12px;
-    background-color: var(--color-surface);
+    border-radius: 14px;
+    background-color: rgba(255, 255, 255, 0.94);
+    box-shadow: 0 -8px 24px -20px rgba(26, 25, 25, 0.5);
+    overflow-x: auto;
 }
 
-.font-tools,
-.color-tools {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-}
-
-.edit-toolbar button {
+.edit-dock button {
+    flex: 0 0 auto;
     border: 1px solid var(--color-border);
     background: var(--color-bg);
     color: var(--color-text-main);
     border-radius: 9px;
-    min-width: 32px;
-    height: 30px;
+    min-width: 34px;
+    height: 32px;
+    padding: 0 9px;
     font-weight: 700;
     cursor: pointer;
 }
 
-.edit-toolbar .color-dot {
-    min-width: 24px;
-    width: 24px;
-    height: 24px;
+.edit-dock .color-dot {
+    min-width: 26px;
+    width: 26px;
+    height: 26px;
     border-radius: 999px;
     padding: 0;
     background: var(--dot);
+}
+
+.dock-divider {
+    flex: 0 0 1px;
+    height: 24px;
+    background-color: var(--color-border);
 }
 
 .edit-form input,
@@ -1532,6 +1538,17 @@ textarea::placeholder {
     .card-detail-body,
     .settings-content {
         padding: 24px 18px 18px;
+    }
+
+    .edit-form {
+        padding-bottom: 6px;
+    }
+
+    .edit-dock {
+        bottom: 0;
+        margin-left: -2px;
+        margin-right: -2px;
+        border-radius: 12px;
     }
 
     .detail-title {

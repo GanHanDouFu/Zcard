@@ -13,6 +13,7 @@ let currentActionCardId = null;
 let currentReviewCardId = null;
 let isEditingCard = false;
 let reviewRevealTimer = null;
+let activeEditField = 'core_point';
 
 // API 配置
 const API_URL = 'https://api.deepseek.com/chat/completions';
@@ -647,6 +648,20 @@ function renderCardEditForm(card) {
             ${renderEditField('action', '行动建议', 'textarea', card.action || '', card)}
             ${renderEditField('note', '自由补充', 'textarea', card.note || '', card)}
             <label>视频链接<input id="edit-link" value="${escapeHTML(card.video_link || '')}"></label>
+            <div class="edit-dock" aria-label="编辑工具栏">
+                <button type="button" data-font-size="14px">A-</button>
+                <button type="button" data-font-size="16px">A</button>
+                <button type="button" data-font-size="18px">A+</button>
+                <span class="dock-divider"></span>
+                <button type="button" class="color-dot" data-color="#1f1f1d" style="--dot:#1f1f1d" title="黑色"></button>
+                <button type="button" class="color-dot" data-color="#c44f45" style="--dot:#c44f45" title="红色"></button>
+                <button type="button" class="color-dot" data-color="#2563eb" style="--dot:#2563eb" title="蓝色"></button>
+                <button type="button" class="color-dot" data-color="#6f6b65" style="--dot:#6f6b65" title="灰色"></button>
+                <span class="dock-divider"></span>
+                <button type="button" data-insert="• ">•</button>
+                <button type="button" data-insert="☐ ">☐</button>
+                <button type="button" data-insert="@"> @ </button>
+            </div>
         </div>
     `;
 }
@@ -661,36 +676,40 @@ function renderEditField(field, label, type, value, card) {
     return `
         <label class="editable-field" data-field="${field}">
             <span>${escapeHTML(label)}</span>
-            <div class="edit-toolbar" data-target="${field}">
-                <div class="font-tools" aria-label="字号">
-                    <button type="button" data-font-size="14px">A-</button>
-                    <button type="button" data-font-size="16px">A</button>
-                    <button type="button" data-font-size="18px">A+</button>
-                </div>
-                <div class="color-tools" aria-label="颜色">
-                    <button type="button" class="color-dot" data-color="#1f1f1d" style="--dot:#1f1f1d"></button>
-                    <button type="button" class="color-dot" data-color="#c44f45" style="--dot:#c44f45"></button>
-                    <button type="button" class="color-dot" data-color="#2563eb" style="--dot:#2563eb"></button>
-                    <button type="button" class="color-dot" data-color="#6f6b65" style="--dot:#6f6b65"></button>
-                </div>
-            </div>
             ${control}
         </label>
     `;
 }
 
 function bindEditStyleControls() {
-    els.modalBody.querySelectorAll('.edit-toolbar button').forEach((button) => {
+    els.modalBody.querySelectorAll('[data-style-field]').forEach((input) => {
+        input.addEventListener('focus', () => {
+            activeEditField = input.dataset.styleField;
+        });
+        input.addEventListener('click', () => {
+            activeEditField = input.dataset.styleField;
+        });
+    });
+
+    els.modalBody.querySelectorAll('.edit-dock button').forEach((button) => {
         button.addEventListener('click', () => {
-            const toolbar = button.closest('.edit-toolbar');
-            const field = toolbar?.dataset.target;
-            const input = field ? els.modalBody.querySelector(`[data-style-field="${field}"]`) : null;
+            const input = els.modalBody.querySelector(`[data-style-field="${activeEditField}"]`);
             if (!input) return;
             if (button.dataset.fontSize) {
                 input.style.fontSize = button.dataset.fontSize;
             }
             if (button.dataset.color) {
                 input.style.color = button.dataset.color;
+            }
+            if (button.dataset.insert && 'selectionStart' in input) {
+                const start = input.selectionStart;
+                const end = input.selectionEnd;
+                const insert = button.dataset.insert;
+                input.value = `${input.value.slice(0, start)}${insert}${input.value.slice(end)}`;
+                input.focus();
+                input.setSelectionRange(start + insert.length, start + insert.length);
+            } else {
+                input.focus();
             }
         });
     });
