@@ -66,10 +66,6 @@ body {
     min-height: 100vh;
 }
 
-.wx-status-bar {
-    display: none;
-}
-
 h1, h2, h3, h4 {
     color: var(--color-text-main);
     font-family: var(--font-serif);
@@ -205,10 +201,6 @@ a:hover {
 }
 
 .bottom-nav {
-    display: none;
-}
-
-.wx-capsule-divider {
     display: none;
 }
 
@@ -815,42 +807,17 @@ textarea::placeholder {
         margin: 0 auto;
         background-color: #f7f7f7;
         display: grid;
-        grid-template-rows: auto auto 1fr auto;
+        grid-template-rows: auto 1fr auto;
         overflow: hidden;
         border: 0;
         box-shadow: none;
     }
 
-    .wx-status-bar {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        height: 32px;
-        padding: 8px 18px 0;
-        background-color: #f7f7f7;
-        color: #111111;
-        font-size: 12px;
-        font-weight: 700;
-        line-height: 1;
-    }
-
-    .wx-status-icons {
-        display: inline-flex;
-        align-items: center;
-        gap: 5px;
-    }
-
-    .wx-status-icons i {
-        width: 14px;
-        height: 14px;
-        stroke-width: 2.2;
-    }
-
     .header {
         flex-direction: row;
         gap: var(--space-sm);
-        min-height: 48px;
-        padding: 6px 12px 8px 16px;
+        min-height: 58px;
+        padding: calc(10px + env(safe-area-inset-top)) 12px 10px 14px;
         align-items: center;
         background-color: #f7f7f7;
         backdrop-filter: none;
@@ -862,67 +829,58 @@ textarea::placeholder {
     .logo-container {
         flex: 1;
         min-width: 0;
-        justify-content: center;
-        padding-right: 108px;
+        justify-content: flex-start;
+        padding-right: 0;
     }
 
     .logo-icon {
-        display: none;
+        display: block;
+        width: 23px;
+        height: 23px;
+        color: #07c160;
     }
 
     .logo-text {
         min-width: 0;
-        text-align: center;
+        text-align: left;
     }
 
     .logo-text h1 {
-        font-size: 17px;
+        font-size: 18px;
         font-family: var(--font-sans);
-        font-weight: 700;
+        font-weight: 800;
         line-height: 1.2;
         color: #111111;
     }
 
     .slogan {
-        display: none;
+        display: block;
+        max-width: 180px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 11px;
+        color: #8a8a8a;
+        font-family: var(--font-sans);
+        font-style: normal;
     }
 
     .header-actions {
-        position: absolute;
-        top: 6px;
-        right: 10px;
-        gap: 0;
-    }
-
-    .wx-capsule {
-        width: 88px;
-        height: 32px;
-        padding: 0;
-        display: grid;
-        grid-template-columns: 1fr 1px 1fr;
+        position: static;
+        display: flex;
+        gap: 8px;
         align-items: center;
-        background-color: rgba(255, 255, 255, 0.78);
-        border: 1px solid rgba(0, 0, 0, 0.16);
-        border-radius: 18px;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
-    }
-
-    .wx-capsule-divider {
-        display: block;
-        width: 1px;
-        height: 18px;
-        background-color: rgba(0, 0, 0, 0.14);
     }
 
     .header-actions .btn-secondary,
     .header-actions .btn-icon {
-        width: 100%;
-        height: 30px;
+        width: 38px;
+        height: 38px;
         padding: 0;
-        background: transparent;
-        border: 0;
+        background-color: #ffffff;
+        border: 1px solid #eeeeee;
         box-shadow: none;
-        border-radius: 0;
+        border-radius: 14px;
         color: #111111;
         font-size: 0;
     }
