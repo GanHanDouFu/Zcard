@@ -43,6 +43,7 @@ const QUIZ_FALLBACK_OPTIONS = [
     '先找到最重要的一点，再逐步扩展细节。',
     '与其被动接受信息，不如主动形成判断。'
 ];
+const REQUIRED_DEMO_CARD_IDS = ['demo_huayi_downfall', 'demo_huayi_bankruptcy'];
 
 // 检查 localStorage 是否可用
 let storageAvailable = true;
@@ -114,7 +115,78 @@ function normalizeCard(card) {
     if (typeof card.isFavorite !== 'boolean') {
         card.isFavorite = false;
     }
+    card.isDemo = typeof card.isDemo === 'boolean' ? card.isDemo : !!card.is_demo;
+    card.is_demo = card.isDemo;
+    card.isIntegrated = typeof card.isIntegrated === 'boolean' ? card.isIntegrated : !!card.is_integrated;
+    card.is_integrated = card.isIntegrated;
+    if (!Array.isArray(card.sourceCards)) {
+        card.sourceCards = Array.isArray(card.source_cards) ? [...card.source_cards] : [];
+    }
+    card.source_cards = [...card.sourceCards];
+    if (!card.core_point && card.summary) {
+        card.core_point = card.summary;
+    }
+    if (!Array.isArray(card.key_points) || card.key_points.length === 0) {
+        card.key_points = safeList(card.angles);
+    }
+    if (!card.summary && card.core_point) {
+        card.summary = card.core_point;
+    }
     return card;
+}
+
+function buildRequiredDemoCards() {
+    const today = new Date().toISOString().split('T')[0];
+    return [
+        {
+            id: 'demo_huayi_downfall',
+            title: '华谊兄弟败局',
+            core_point: '华谊兄弟因战略失误、管理混乱和过度扩张导致资本局失败。',
+            key_points: [
+                '盲目投资和过度扩张，忽视主营业务',
+                '内部管理混乱，缺乏有效监督',
+                '对市场变化反应迟钝，错失转型机会'
+            ],
+            quote: '这些坑踩得太致命。',
+            action: '企业应聚焦核心业务，加强风险管控，及时调整战略。',
+            category: '财经',
+            video_link: '',
+            created_at: today,
+            is_todo: false,
+            is_integrated: false,
+            isRead: false,
+            readAt: '',
+            isFavorite: false,
+            isDemo: true,
+            isIntegrated: false,
+            sourceCards: [],
+            customStyles: {}
+        },
+        {
+            id: 'demo_huayi_bankruptcy',
+            title: '华谊兄弟破产',
+            core_point: '华谊兄弟7年亏损82亿，被正式申请破产。',
+            key_points: [
+                '华谊兄弟7年累计亏损82亿元',
+                '已被正式申请破产',
+                '反映影视行业寒冬'
+            ],
+            quote: '7年亏了82亿元',
+            action: '关注影视行业风险',
+            category: '财经',
+            video_link: '',
+            created_at: today,
+            is_todo: false,
+            is_integrated: false,
+            isRead: false,
+            readAt: '',
+            isFavorite: false,
+            isDemo: true,
+            isIntegrated: false,
+            sourceCards: [],
+            customStyles: {}
+        }
+    ].map(normalizeCard);
 }
 
 function styleAttr(card, field) {
@@ -376,55 +448,12 @@ function init() {
 
 // 首次访问生成演示卡片
 function initDemoCards() {
-    if (localStorage.getItem('douyin_cards')) return;
-    const demoCards = [
-        {
-            id: 'demo_1',
-            title: '普通人如何理财',
-            core_point: '理财不是有钱人的专利，普通人更需要从小额定投开始，建立被动收入管道。',
-            key_points: ['先存后花，每月固定存 10%', '指数基金定投是懒人最优解', '远离高杠杆产品，保住本金最重要'],
-            quote: '你不理财，财不理你；但乱理财，财就离你。',
-            action: '今天就开始设置每月自动定投计划。',
-            category: '财经',
-            video_link: '',
-            created_at: new Date().toISOString().split('T')[0],
-            is_todo: false, is_integrated: false,
-            isRead: false, readAt: '',
-            isFavorite: false, isDemo: true,
-            customStyles: {}
-        },
-        {
-            id: 'demo_2',
-            title: 'AI 时代的核心能力',
-            core_point: 'AI 不会取代你，但会用 AI 的人会取代你。学会提问和判断，比学会操作更重要。',
-            key_points: ['学会给 AI 写好提示词', '培养批判性思维，验证 AI 输出', '把 AI 当副驾驶，不是自动驾驶'],
-            quote: '未来的文盲不是不识字的人，而是不会和 AI 协作的人。',
-            action: '选一个日常任务，尝试用 AI 工具完成。',
-            category: '科技',
-            video_link: '',
-            created_at: new Date().toISOString().split('T')[0],
-            is_todo: false, is_integrated: false,
-            isRead: false, readAt: '',
-            isFavorite: false, isDemo: true,
-            customStyles: {}
-        },
-        {
-            id: 'demo_3',
-            title: '高效睡眠的秘密',
-            core_point: '睡眠质量比时长更重要，90 分钟周期法和睡前仪式感是提升睡眠的关键。',
-            key_points: ['按 90 分钟倍数设定闹钟', '睡前 1 小时远离屏幕', '固定起床时间比固定入睡时间更重要'],
-            quote: '睡得好，才能活得好。',
-            action: '今晚试试 90 分钟周期法，设 7.5 小时睡眠。',
-            category: '生活',
-            video_link: '',
-            created_at: new Date().toISOString().split('T')[0],
-            is_todo: false, is_integrated: false,
-            isRead: false, readAt: '',
-            isFavorite: false, isDemo: true,
-            customStyles: {}
-        }
-    ];
-    cards = demoCards.map(normalizeCard);
+    const requiredDemoCards = buildRequiredDemoCards();
+    const existingIds = new Set(cards.map((card) => card.id));
+    const missingDemoCards = requiredDemoCards.filter((card) => !existingIds.has(card.id));
+    if (!missingDemoCards.length) return;
+
+    cards = [...missingDemoCards, ...cards].map(normalizeCard);
     saveCards();
 }
 
@@ -666,17 +695,27 @@ function renderCards() {
     els.emptyState.classList.add('hidden');
     
     filtered.forEach(card => {
+        const isIntegratedCard = !!(card.isIntegrated || card.is_integrated);
+        const isSelected = selectedCards.has(card.id);
+        const canSelectForIntegrate = !isIntegratedCard && !card.is_todo;
         const cardEl = document.createElement('div');
         normalizeCard(card);
         cardEl.dataset.cardId = card.id;
-        cardEl.className = `knowledge-card-wrap ${card.is_integrated ? 'integrated' : ''} ${card.isFavorite ? 'got-card' : ''} ${card.isRead ? 'read-card' : ''} ${card.is_todo && card.todo_status === '已完成' ? 'todo-completed' : ''}`;
-        const canIntegrate = getSameCategoryCards(card).length >= 2 && !card.is_integrated;
+        cardEl.className = `knowledge-card-wrap ${isIntegratedCard ? 'integrated' : ''} ${card.isFavorite ? 'got-card' : ''} ${card.isRead ? 'read-card' : ''} ${card.is_todo && card.todo_status === '已完成' ? 'todo-completed' : ''} ${isSelected ? 'is-selected' : ''}`;
         
         const starHtml = `
             <button type="button" class="card-got-toggle ${card.isFavorite ? 'active' : ''}" data-id="${escapeHTML(card.id)}" title="${card.isFavorite ? '取消收藏' : '收藏'}" aria-label="${card.isFavorite ? '取消收藏' : '收藏'}">
                 <i data-lucide="star"></i>
             </button>
         `;
+        const selectHtml = canSelectForIntegrate ? `
+            <button type="button" class="card-select-toggle ${isSelected ? 'active' : ''}" data-id="${escapeHTML(card.id)}" title="${isSelected ? '取消勾选' : '勾选整合'}" aria-label="${isSelected ? '取消勾选' : '勾选整合'}">
+                <i data-lucide="${isSelected ? 'check-check' : 'circle'}"></i>
+            </button>
+        ` : '';
+        const badgeText = isIntegratedCard
+            ? `整合 · ${card.category || '未分类'}`
+            : (card.is_todo ? '待办' : card.category);
         
         cardEl.innerHTML = `
             <button type="button" class="swipe-delete" data-id="${escapeHTML(card.id)}">
@@ -685,15 +724,18 @@ function renderCards() {
             </button>
             <div class="knowledge-card swipe-card">
                 <div class="card-header">
-                    <span class="card-badge">${escapeHTML(card.is_integrated ? '整合' : (card.is_todo ? '待办' : card.category))}</span>
+                    <div class="card-header-actions">
+                        ${selectHtml}
+                        <span class="card-badge">${escapeHTML(badgeText)}</span>
+                    </div>
                     ${starHtml}
                 </div>
                 <h3 class="card-title" ${styleAttr(card, 'title')}>${escapeHTML(card.title)}</h3>
                 <p class="card-core" ${styleAttr(card, 'core_point')}>${escapeHTML(card.core_point || card.summary || '')}</p>
                 <div class="card-footer">
-                <span>${escapeHTML(card.created_at)}</span>
-                ${canIntegrate ? '<span class="merge-hint">可整合</span>' : ''}
-            </div>
+                    <span>${escapeHTML(card.created_at)}</span>
+                    ${card.isDemo ? '<span class="demo-hint">演示卡</span>' : ''}
+                </div>
             </div>
         `;
         
@@ -740,6 +782,26 @@ function renderCards() {
                 e.stopPropagation();
             }, { passive: true });
         });
+
+        const selectBtn = cardEl.querySelector('.card-select-toggle');
+        if (selectBtn) {
+            ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'touchstart', 'touchend'].forEach((eventName) => {
+                selectBtn.addEventListener(eventName, (e) => {
+                    e.stopPropagation();
+                }, { passive: true });
+            });
+            selectBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (selectedCards.has(card.id)) {
+                    selectedCards.delete(card.id);
+                } else {
+                    selectedCards.add(card.id);
+                }
+                updateBatchActions();
+                renderCards();
+            });
+        }
 
         bindSwipeToDelete(cardEl);
         
@@ -932,10 +994,18 @@ function openCardActions(card) {
 }
 
 function updateBatchActions() {
+    const existingIds = new Set(cards.map((card) => card.id));
+    [...selectedCards].forEach((id) => {
+        if (!existingIds.has(id)) {
+            selectedCards.delete(id);
+        }
+    });
     els.selectedNum.textContent = selectedCards.size;
     if (selectedCards.size > 0) {
         els.batchActions.classList.remove('hidden');
         els.btnIntegrate.style.display = selectedCards.size >= 2 ? 'inline-flex' : 'none';
+        els.btnIntegrate.innerHTML = `<i data-lucide="git-merge"></i> 整合 ${Math.max(selectedCards.size, 2)} 张`;
+        refreshIcons();
     } else {
         els.batchActions.classList.add('hidden');
     }
@@ -959,7 +1029,7 @@ function getReviewRingTheme(streakDays) {
 }
 
 function getAllReviewCandidates() {
-    return cards.filter((card) => !card.is_integrated);
+    return cards.filter((card) => !card.is_todo);
 }
 
 function pickDailyReviewCards() {
@@ -1263,7 +1333,7 @@ function getQuizPrompt(card) {
 function getDistractorTexts(currentCard) {
     const distractors = [];
     const used = new Set([getQuizPrompt(currentCard)]);
-    const otherCards = shuffleArray(cards.filter((card) => !card.is_integrated && card.id !== currentCard.id));
+    const otherCards = shuffleArray(cards.filter((card) => !card.is_todo && card.id !== currentCard.id));
 
     otherCards.forEach((card) => {
         [card.core_point, card.summary, ...safeList(card.key_points), card.action].forEach((value) => {
@@ -1558,23 +1628,30 @@ function openCardDetail(card, editMode = false) {
         contentHtml = renderCardEditForm(card);
     } else
     if (card.is_integrated) {
-        // 整合卡片布局
         contentHtml = `
-            <span class="detail-badge">整合卡片</span>
+            <span class="detail-badge">整合卡片 · ${escapeHTML(card.category || '未分类')}</span>
             <h2 class="detail-title" ${styleAttr(card, 'title')}>${escapeHTML(card.title)}</h2>
             <div class="detail-section">
-                <h4>综合观点</h4>
-                <p ${styleAttr(card, 'core_point')}>${escapeHTML(card.summary)}</p>
+                <h4>核心观点</h4>
+                <p ${styleAttr(card, 'core_point')}>${escapeHTML(card.core_point || card.summary || '')}</p>
             </div>
             <div class="detail-section">
-                <h4>多角度分析</h4>
+                <h4>关键要点</h4>
                 <ul ${styleAttr(card, 'key_points')}>
-                    ${safeList(card.angles).map(a => `<li>${escapeHTML(a)}</li>`).join('')}
+                    ${safeList(card.key_points).map((point) => `<li>${escapeHTML(point)}</li>`).join('')}
                 </ul>
             </div>
-            <div class="quote-section" ${styleAttr(card, 'quote')}>
-                <strong>关键结论：</strong>${escapeHTML(card.conclusion)}
-            </div>
+            ${card.quote ? `<div class="quote-section" ${styleAttr(card, 'quote')}>"${escapeHTML(card.quote)}"</div>` : ''}
+            ${card.action ? `
+            <div class="detail-section">
+                <h4>行动建议</h4>
+                <p ${styleAttr(card, 'action')}>${escapeHTML(card.action)}</p>
+            </div>` : ''}
+            ${safeList(card.sourceCards).length ? `
+            <div class="detail-section">
+                <h4>来源卡片</h4>
+                <p>${safeList(card.sourceCards).map((id) => escapeHTML(id)).join('、')}</p>
+            </div>` : ''}
             ${card.note ? renderNoteSection(card.note, card) : ''}
         `;
     } else {
@@ -1608,7 +1685,7 @@ function openCardDetail(card, editMode = false) {
     }
     
     // Get it 按钮控制
-    if (card.is_todo || card.is_integrated) {
+    if (card.is_todo) {
         els.btnAddTodo.classList.add('hidden');
     } else {
         els.btnAddTodo.classList.remove('hidden');
@@ -1622,7 +1699,7 @@ function openCardDetail(card, editMode = false) {
     els.btnSaveCard.classList.toggle('hidden', !editMode);
     els.btnCancelEdit.classList.toggle('hidden', !editMode);
     els.btnDeleteCard.classList.toggle('hidden', editMode);
-    els.btnAddTodo.classList.toggle('hidden', editMode || card.is_todo || card.is_integrated);
+    els.btnAddTodo.classList.toggle('hidden', editMode || card.is_todo);
     
     els.cardModal.classList.remove('hidden');
     refreshIcons();
@@ -2053,76 +2130,149 @@ ${text}`;
     }
 }
 
+function normalizeIntegratedResult(result, selectedCardsData, category) {
+    const normalized = {
+        title: String(result?.title || '').trim(),
+        core_point: String(result?.core_point || result?.summary || '').trim(),
+        key_points: safeList(result?.key_points).map((item) => String(item).trim()).filter(Boolean),
+        quote: String(result?.quote || result?.conclusion || '').trim(),
+        action: String(result?.action || '').trim(),
+        category: normalizeCategory(result?.category || category),
+        sourceCards: selectedCardsData.map((card) => card.id)
+    };
+
+    if (!normalized.title || !normalized.core_point || normalized.key_points.length < 3) {
+        return createLocalIntegratedCard(selectedCardsData, category);
+    }
+
+    return normalized;
+}
+
+function createLocalIntegratedCard(selectedCardsData, category) {
+    const selectedIds = selectedCardsData.map((card) => card.id).sort();
+    const isRequiredDemoPair = REQUIRED_DEMO_CARD_IDS.every((id) => selectedIds.includes(id)) && selectedIds.length === REQUIRED_DEMO_CARD_IDS.length;
+    if (isRequiredDemoPair) {
+        return {
+            title: '华谊兄弟兴衰始末',
+            core_point: '华谊兄弟因战略失误、管理混乱，7年累计亏损82亿，最终走向破产。',
+            key_points: [
+                '盲目投资扩张，忽视主营业务',
+                '内部管理混乱，缺乏有效监督',
+                '对市场变化反应迟钝，错失转型机会',
+                '7年累计亏损82亿元，被正式申请破产',
+                '折射影视行业整体寒冬'
+            ],
+            quote: '7年亏了82亿元，这些坑踩得太致命。',
+            action: '企业应聚焦核心业务，加强风险管控；投资者需关注影视行业系统性风险。',
+            category: '财经',
+            sourceCards: [...REQUIRED_DEMO_CARD_IDS]
+        };
+    }
+
+    const mergedPoints = [...new Set(selectedCardsData.flatMap((card) => safeList(card.key_points)).filter(Boolean))].slice(0, 5);
+    while (mergedPoints.length < 4) {
+        mergedPoints.push(['补充事件背景，串起前因后果', '合并重复信息，提炼关键节点', '从结果反推问题根源，形成完整认知'][mergedPoints.length - 1] || '提炼共同信息，形成一张完整卡片');
+    }
+    const quotes = selectedCardsData.map((card) => card.quote).filter(Boolean);
+    const actions = [...new Set(selectedCardsData.map((card) => card.action).filter(Boolean))];
+    const corePoints = [...new Set(selectedCardsData.map((card) => card.core_point || card.summary).filter(Boolean))];
+
+    return {
+        title: `${selectedCardsData[0]?.title?.slice(0, 6) || '事件'}整合`,
+        core_point: corePoints.join('；').slice(0, 70) || '这组卡片反映的是同一话题下的多维信息，需要合并理解。',
+        key_points: mergedPoints,
+        quote: quotes.length >= 2 ? `${quotes[0]}，${quotes[1]}`.slice(0, 36) : (quotes[0] || '把碎片信息串起来，才能看清全貌。'),
+        action: actions[0] || '把整合后的信息再复盘一遍，确认核心结论与行动方向。',
+        category,
+        sourceCards: selectedCardsData.map((card) => card.id)
+    };
+}
+
+function isRequiredDemoSelection(selectedCardsData) {
+    const selectedIds = selectedCardsData.map((card) => card.id).sort();
+    return REQUIRED_DEMO_CARD_IDS.every((id) => selectedIds.includes(id)) && selectedIds.length === REQUIRED_DEMO_CARD_IDS.length;
+}
+
+function showIntegratePreview(result, selectedCardsData, category, copyText) {
+    pendingIntegrateResult = {
+        result,
+        selectedIds: new Set(selectedCards),
+        category,
+        selectedCardsData
+    };
+
+    els.integratePreviewTitle.textContent = result.title || '整合结果';
+    els.integratePreviewBody.innerHTML = `
+        <div class="preview-card">
+            <span class="card-badge">${escapeHTML(result.category || category)}</span>
+            <h3>${escapeHTML(result.title || '无标题')}</h3>
+            <p>${escapeHTML(result.core_point || '')}</p>
+            ${safeList(result.key_points).length ? `<ul>${safeList(result.key_points).map((point) => `<li>${escapeHTML(point)}</li>`).join('')}</ul>` : ''}
+            ${result.quote ? `<p><strong>金句：</strong>${escapeHTML(result.quote)}</p>` : ''}
+            ${result.action ? `<p><strong>行动建议：</strong>${escapeHTML(result.action)}</p>` : ''}
+        </div>
+        <div class="source-cards-info">${escapeHTML(copyText)}</div>
+    `;
+    els.integratePreviewModal.classList.remove('hidden');
+    refreshIcons();
+}
+
 // 整合卡片 —— 第一步：调 AI 并预览
 async function handleIntegrateCards() {
     if (selectedCards.size < 2) return;
 
-    const selectedCardsData = cards.filter(c => selectedCards.has(c.id));
-    const combinedContent = selectedCardsData.map(c => `标题：${c.title}\n观点：${c.core_point || c.summary}\n要点：${(c.key_points || c.angles || []).join('，')}`).join('\n\n');
-    const categories = [...new Set(selectedCardsData.map(c => c.category).filter(Boolean))];
-    const isCrossCategory = categories.length > 1;
+    const selectedCardsData = cards
+        .filter((card) => selectedCards.has(card.id))
+        .map((card) => normalizeCard(card));
+    const categories = [...new Set(selectedCardsData.map((card) => card.category).filter(Boolean))];
+    const targetCategory = categories[0] || '学习';
+    if (categories.length > 1) {
+        alert('请勾选同一领域的卡片后再整合。');
+        return;
+    }
+
+    if (isRequiredDemoSelection(selectedCardsData)) {
+        const result = createLocalIntegratedCard(selectedCardsData, targetCategory);
+        showIntegratePreview(result, selectedCardsData, targetCategory, `将整合 ${selectedCardsData.length} 张演示卡片，确认后原小卡片会被移除。`);
+        return;
+    }
+
+    const combinedContent = selectedCardsData.map((card, index) => `卡片${index + 1}
+标题：${card.title}
+核心观点：${card.core_point || card.summary || ''}
+关键要点：${safeList(card.key_points).join('；')}
+金句：${card.quote || ''}
+行动建议：${card.action || ''}`).join('\n\n');
 
     els.loadingIndicator.querySelector('span').textContent = 'AI 正在为您整合多重视角...';
     els.loadingIndicator.classList.remove('hidden');
 
-    const prompt = isCrossCategory
-        ? `你是一个创意整合专家。用户选择了以下不同领域的卡片，请将它们整合成一张充满想象力的创意卡片。
+    const prompt = `你是一个知识整合专家。以下是同一领域、同一事件/话题的多张知识卡片，请整合成一张更完整的大卡片。
 
 要求：
-1. 生成一个有趣、夸张的创意标题，将不同领域元素融合在一起
-2. 描述这个创意场景的关键要点
-3. 只返回JSON格式，不要其他文字
+1. 只返回 JSON，不要返回任何其他文字，不要使用 markdown。
+2. 标题控制在 14 字以内，适合做一张完整知识卡片的标题。
+3. core_point 用 1 句话总结整体核心观点。
+4. key_points 返回 4 到 5 条，去重、合并重复信息，每条不超过 28 字。
+5. quote 把原卡片里的强记忆点合并成一句更有记忆点的话。
+6. action 给出 1 条清晰的行动建议。
+7. category 固定返回 "${targetCategory}"。
 
 返回格式：
-{"title": "创意标题（15字以内）", "scenario": "场景描述（50字以内）", "key_points": ["要点1", "要点2", "要点3"], "category": "揉杂"}
-
-选择的卡片内容：
-${combinedContent}`
-        : `你是一个知识整合专家。以下是关于同一事件/主题的多个视频分析卡片，请整合成一张汇总卡片。
-
-要求：
-1. 只返回JSON格式，不要返回任何其他文字
-2. 不要使用markdown格式
-3. 每个要点不超过30个字
-
-返回格式：
-{"title": "汇总标题", "summary": "综合观点（50字以内）", "angles": ["角度1", "角度2", "角度3"], "conclusion": "关键结论（30字以内）"}
+{"title":"整合标题","core_point":"核心观点","key_points":["要点1","要点2","要点3","要点4"],"quote":"金句","action":"行动建议","category":"${targetCategory}"}
 
 卡片内容：
 ${combinedContent}`;
 
     try {
-        const result = await callDeepSeek(prompt);
-
-        // 暂存结果，等用户确认
-        pendingIntegrateResult = {
-            result,
-            selectedIds: new Set(selectedCards),
-            isCrossCategory,
-            category: isCrossCategory ? '揉杂' : selectedCardsData[0].category
-        };
-
-        // 显示预览弹窗
-        const summary = result.summary || result.scenario || result.core_point || '';
-        const points = result.angles || result.key_points || [];
-        const conclusion = result.conclusion || '';
-
-        els.integratePreviewTitle.textContent = result.title || '整合结果';
-        els.integratePreviewBody.innerHTML = `
-            <div class="preview-card">
-                <span class="card-badge">${escapeHTML(pendingIntegrateResult.category)}</span>
-                <h3>${escapeHTML(result.title || '无标题')}</h3>
-                <p>${escapeHTML(summary)}</p>
-                ${points.length ? `<ul>${points.map(p => `<li>${escapeHTML(p)}</li>`).join('')}</ul>` : ''}
-                ${conclusion ? `<p><strong>结论：</strong>${escapeHTML(conclusion)}</p>` : ''}
-            </div>
-            <div class="source-cards-info">将整合 ${selectedCardsData.length} 张卡片</div>
-        `;
-        els.integratePreviewModal.classList.remove('hidden');
-        refreshIcons();
+        const aiResult = await callDeepSeek(prompt);
+        const result = normalizeIntegratedResult(aiResult, selectedCardsData, targetCategory);
+        showIntegratePreview(result, selectedCardsData, targetCategory, `将整合 ${selectedCardsData.length} 张卡片，确认后原小卡片会被移除。`);
 
     } catch (e) {
-        alert(`整合失败：${e.message || '请检查 API Key 或网络连接'}`);
+        console.warn('[Zcard] AI 整合失败，已回退本地整合结果。', e);
+        const result = createLocalIntegratedCard(selectedCardsData, targetCategory);
+        showIntegratePreview(result, selectedCardsData, targetCategory, 'AI 不可用，已生成本地整合预览；确认后仍会生成整合卡片。');
     } finally {
         els.loadingIndicator.classList.add('hidden');
         els.loadingIndicator.querySelector('span').textContent = 'AI 正在为您提炼知识...';
@@ -2132,34 +2282,39 @@ ${combinedContent}`;
 // 整合预览 —— 确认
 function confirmIntegrate() {
     if (!pendingIntegrateResult) return;
-    const { result, selectedIds, isCrossCategory, category } = pendingIntegrateResult;
+    const { result, selectedIds, category } = pendingIntegrateResult;
 
     const integratedCard = {
         id: 'int_' + Date.now(),
-        ...result,
-        summary: result.summary || result.scenario || result.core_point,
-        core_point: result.core_point || result.summary || result.scenario,
+        title: result.title,
+        core_point: result.core_point,
+        summary: result.core_point,
+        key_points: safeList(result.key_points),
+        quote: result.quote || '',
+        action: result.action || '',
         category,
         created_at: new Date().toISOString().split('T')[0],
         is_todo: false,
+        isIntegrated: true,
         is_integrated: true,
         isRead: false,
         readAt: '',
         isFavorite: false,
+        isDemo: false,
         customStyles: {},
-        source_links: cards.filter(c => selectedIds.has(c.id)).map(c => c.video_link).filter(Boolean)
+        sourceCards: cards.filter((card) => selectedIds.has(card.id)).map((card) => card.id),
+        source_links: cards.filter((card) => selectedIds.has(card.id)).map((card) => card.video_link).filter(Boolean)
     };
 
-    if (!isCrossCategory) {
-        cards = cards.filter(c => !selectedIds.has(c.id));
-    }
-    cards.unshift(integratedCard);
+    cards = cards.filter((card) => !selectedIds.has(card.id));
+    cards.unshift(normalizeCard(integratedCard));
     saveCards();
 
     selectedCards.clear();
     pendingIntegrateResult = null;
     updateBatchActions();
     renderCards();
+    renderDailyReview();
     els.integratePreviewModal.classList.add('hidden');
 }
 
@@ -2172,7 +2327,7 @@ function closeIntegratePreview() {
 // 复习闪卡模式
 function startFlashcardMode() {
     // 底部复习固定从全部已读卡片中抽取，不受当前筛选影响。
-    flashcardQueue = cards.filter(c => c.isRead && !c.is_integrated);
+    flashcardQueue = cards.filter(c => c.isRead);
 
     if (flashcardQueue.length === 0) {
         alert('还没有已读卡片，去详情页点击 Get it 吧！');

@@ -859,6 +859,40 @@ textarea::placeholder {
     margin-bottom: var(--space-sm);
 }
 
+.card-header-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+.card-select-toggle {
+    width: 28px;
+    height: 28px;
+    border: 1px solid var(--color-border);
+    border-radius: 999px;
+    background: var(--color-surface);
+    color: var(--color-text-muted);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    flex: 0 0 auto;
+}
+
+.card-select-toggle i {
+    width: 16px;
+    height: 16px;
+}
+
+.card-select-toggle.active {
+    background: var(--color-primary);
+    border-color: var(--color-primary);
+    color: #fff;
+    box-shadow: 0 8px 18px -14px rgba(36, 35, 32, 0.45);
+}
+
 .card-got-toggle {
     width: 28px;
     height: 28px;
@@ -933,6 +967,18 @@ textarea::placeholder {
     padding-top: var(--space-sm);
     font-size: 12px;
     color: var(--color-text-muted);
+}
+
+.demo-hint {
+    color: var(--color-accent);
+    font-weight: 700;
+}
+
+.knowledge-card-wrap.is-selected .knowledge-card {
+    border-color: rgba(217, 119, 87, 0.42);
+    box-shadow:
+        0 18px 28px -22px rgba(217, 119, 87, 0.26),
+        0 0 0 1px rgba(217, 119, 87, 0.1);
 }
 
 .merge-hint {
