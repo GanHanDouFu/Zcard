@@ -20,6 +20,29 @@ let currentReviewCardId = null;
 let isEditingCard = false;
 let reviewRevealTimer = null;
 let activeEditField = 'core_point';
+let reviewCardFlipped = false;
+let activeReviewIds = [];
+let swipeReviewResults = {};
+let quizQueue = [];
+let quizIndex = 0;
+let quizCorrect = 0;
+let quizWrong = 0;
+let quizLocked = false;
+let currentQuizQuestion = null;
+let quizTransitionTimer = null;
+
+const REVIEW_SETTINGS_KEY = 'zcard_review_settings_v1';
+const REVIEW_SESSION_KEY = 'zcard_review_session_v1';
+const REVIEW_STATS_KEY = 'zcard_review_stats_v1';
+const REVIEW_RING_GOAL = 7;
+const QUIZ_FALLBACK_OPTIONS = [
+    '强调先理解核心结论，再开始实践。',
+    '重点不是做得更多，而是做得更有效。',
+    '关键在于长期坚持，而不是短期冲刺。',
+    '把复杂问题拆成小步骤，执行门槛会更低。',
+    '先找到最重要的一点，再逐步扩展细节。',
+    '与其被动接受信息，不如主动形成判断。'
+];
 
 // 检查 localStorage 是否可用
 let storageAvailable = true;
@@ -120,6 +143,87 @@ function normalizeCategory(value) {
     return map[lower] || '学习';
 }
 
+function loadStoredJson(key, fallback) {
+    if (!storageAvailable) return fallback;
+    try {
+        const raw = localStorage.getItem(key);
+        return raw ? JSON.parse(raw) : fallback;
+    } catch (error) {
+        console.warn(`[Zcard] 读取 ${key} 失败，已回退默认值`, error);
+        return fallback;
+    }
+}
+
+function saveStoredJson(key, value) {
+    if (!storageAvailable) return;
+    try {
+        localStorage.setItem(key, JSON.stringify(value));
+    } catch (error) {
+        console.warn(`[Zcard] 保存 ${key} 失败`, error);
+    }
+}
+
+function clamp(value, min, max) {
+    return Math.min(max, Math.max(min, Number(value) || min));
+}
+
+function shuffleArray(list) {
+    const next = [...list];
+    for (let i = next.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [next[i], next[j]] = [next[j], next[i]];
+    }
+    return next;
+}
+
+function loadReviewSettings() {
+    const stored = loadStoredJson(REVIEW_SETTINGS_KEY, {});
+    return {
+        cardCount: clamp(stored.cardCount || 3, 3, 5)
+    };
+}
+
+function saveReviewSettings() {
+    saveStoredJson(REVIEW_SETTINGS_KEY, dailyReviewSettings);
+}
+
+function normalizeReviewSession(session) {
+    return {
+        date: String(session?.date || ''),
+        cardIds: Array.isArray(session?.cardIds) ? session.cardIds : [],
+        skippedIds: Array.isArray(session?.skippedIds) ? session.skippedIds : [],
+        completed: !!session?.completed,
+        completedAt: String(session?.completedAt || ''),
+        correctCount: Number(session?.correctCount) || 0,
+        wrongCount: Number(session?.wrongCount) || 0
+    };
+}
+
+function loadReviewSession() {
+    return normalizeReviewSession(loadStoredJson(REVIEW_SESSION_KEY, {}));
+}
+
+function saveReviewSession(session) {
+    saveStoredJson(REVIEW_SESSION_KEY, normalizeReviewSession(session));
+}
+
+function loadReviewStats() {
+    const stored = loadStoredJson(REVIEW_STATS_KEY, {});
+    return {
+        streakDays: Math.max(0, Number(stored.streakDays) || 0),
+        lastCheckInDate: String(stored.lastCheckInDate || ''),
+        knowledgePower: Math.max(0, Number(stored.knowledgePower) || 0),
+        totalSessions: Math.max(0, Number(stored.totalSessions) || 0)
+    };
+}
+
+function saveReviewStats(stats) {
+    saveStoredJson(REVIEW_STATS_KEY, stats);
+}
+
+let dailyReviewSettings = loadReviewSettings();
+let reviewSession = loadReviewSession();
+
 function loadCards() {
     if (!storageAvailable) {
         console.log('[Zcard] 使用内存存储（localStorage 不可用）');
@@ -159,11 +263,25 @@ function init() {
     els.btnExport = document.getElementById('btn-export');
     els.btnCancelSelect = document.getElementById('btn-cancel-select');
     els.reviewSection = document.getElementById('review-section');
+    els.reviewHeading = document.getElementById('review-heading');
+    els.reviewSubtext = document.getElementById('review-subtext');
+    els.reviewStack = document.getElementById('review-stack');
     els.reviewCard = document.getElementById('review-card');
+    els.reviewMetaText = document.getElementById('review-meta-text');
     els.reviewTitle = document.getElementById('review-title');
     els.reviewCore = document.getElementById('review-core');
+    els.reviewHint = document.getElementById('review-hint');
+    els.reviewBackMeta = document.getElementById('review-back-meta');
+    els.reviewBackTitle = document.getElementById('review-back-title');
+    els.reviewBackCore = document.getElementById('review-back-core');
     els.btnReviewDo = document.getElementById('btn-review-do');
     els.btnReviewSkip = document.getElementById('btn-review-skip');
+    els.reviewCountPicker = document.getElementById('review-count-picker');
+    els.reviewQueueLabel = document.getElementById('review-queue-label');
+    els.reviewPowerTotal = document.getElementById('review-power-total');
+    els.reviewStreakRing = document.getElementById('review-streak-ring');
+    els.reviewStreakDays = document.getElementById('review-streak-days');
+    els.reviewStreakLabel = document.getElementById('review-streak-label');
     els.btnClearSearch = document.getElementById('btn-clear-search');
     els.searchModal = document.getElementById('search-modal');
     els.btnCloseSearch = document.getElementById('btn-close-search');
@@ -211,15 +329,36 @@ function init() {
     els.btnConfirmIntegrate = document.getElementById('btn-confirm-integrate');
     els.swipeModal = document.getElementById('swipe-review-modal');
     els.btnCloseSwipeReview = document.getElementById('btn-close-swipe-review');
+    els.swipeHead = document.querySelector('.swipe-head');
     els.swipeScene = document.getElementById('swipe-review-scene');
     els.swipeCard = document.getElementById('swipe-review-card');
     els.swipeProgress = document.getElementById('swipe-review-progress');
     els.swipeArrowLeft = document.getElementById('swipe-arrow-left');
     els.swipeArrowRight = document.getElementById('swipe-arrow-right');
+    els.swipeActionsBar = document.getElementById('swipe-actions-bar');
+    els.swipeGestureHint = document.getElementById('swipe-gesture-hint');
+    els.btnSwipeUnderstood = document.getElementById('btn-swipe-understood');
+    els.btnSwipeConfused = document.getElementById('btn-swipe-confused');
     els.swipeDone = document.getElementById('swipe-done');
     els.swipeStatUnderstood = document.getElementById('swipe-stat-understood');
     els.swipeStatConfused = document.getElementById('swipe-stat-confused');
     els.btnSwipeDoneClose = document.getElementById('btn-swipe-done-close');
+    els.quizStage = document.getElementById('quiz-stage');
+    els.quizCardTitle = document.getElementById('quiz-card-title');
+    els.quizProgress = document.getElementById('quiz-progress');
+    els.quizOptions = document.getElementById('quiz-options');
+    els.quizFeedback = document.getElementById('quiz-feedback');
+    els.quizStreakText = document.getElementById('quiz-streak-text');
+    els.quizScoreText = document.getElementById('quiz-score-text');
+    els.quizConfettiLayer = document.getElementById('quiz-confetti-layer');
+    els.quizPowerFloat = document.getElementById('quiz-power-float');
+    els.quizComplete = document.getElementById('quiz-complete');
+    els.quizCompleteTitle = document.getElementById('quiz-complete-title');
+    els.quizCompleteCopy = document.getElementById('quiz-complete-copy');
+    els.quizCompleteCorrect = document.getElementById('quiz-complete-correct');
+    els.quizCompleteWrong = document.getElementById('quiz-complete-wrong');
+    els.quizCompleteStreak = document.getElementById('quiz-complete-streak');
+    els.btnQuizCompleteClose = document.getElementById('btn-quiz-complete-close');
     els.srCategory = document.getElementById('sr-category');
     els.srTitle = document.getElementById('sr-title');
     els.srCore = document.getElementById('sr-core');
@@ -398,18 +537,39 @@ function bindEvents() {
         if (card) openCardDetail(card);
     });
 
-    els.btnReviewSkip.addEventListener('click', () => completeReviewCard(false));
-    els.btnReviewDo.addEventListener('click', () => completeReviewCard(true));
+    els.reviewCountPicker.addEventListener('click', (e) => {
+        const button = e.target.closest('[data-review-count]');
+        if (!button) return;
+        const nextCount = clamp(button.dataset.reviewCount, 3, 5);
+        if (nextCount === dailyReviewSettings.cardCount) return;
+        dailyReviewSettings.cardCount = nextCount;
+        saveReviewSettings();
+        reviewSession = ensureDailyReviewSession(true);
+        renderDailyReview();
+    });
+    els.btnReviewSkip.addEventListener('click', (e) => {
+        e.stopPropagation();
+        skipCurrentReviewCard();
+    });
+    els.btnReviewDo.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openSwipeReview();
+    });
 
-    // 点击今日复习卡片进入滑动复习模式
+    // 点击今日复习卡片翻转
     els.reviewCard.addEventListener('click', (e) => {
         if (e.target.closest('.btn')) return; // 不拦截按钮点击
-        openSwipeReview();
+        if (reviewSession.completed || !currentReviewCardId) return;
+        if (reviewCardFlipped) return;
+        setReviewCardFlip(true);
     });
 
     // 滑动复习弹窗
     els.btnCloseSwipeReview.addEventListener('click', closeSwipeReview);
-    els.btnSwipeDoneClose.addEventListener('click', closeSwipeReview);
+    els.btnSwipeDoneClose.addEventListener('click', startQuizMode);
+    els.btnQuizCompleteClose.addEventListener('click', closeSwipeReview);
+    els.btnSwipeUnderstood.addEventListener('click', () => handleSwipeDecision('understood'));
+    els.btnSwipeConfused.addEventListener('click', () => handleSwipeDecision('confused'));
     bindSwipeReviewGestures();
     
     // 闪卡复习
@@ -785,97 +945,268 @@ function todayKey() {
     return new Date().toISOString().split('T')[0];
 }
 
-function renderDailyReview() {
-    const today = todayKey();
-    const gotCards = cards.filter(card => card.isRead && !card.is_integrated);
-    const available = gotCards.filter(card => card.reviewed_on !== today);
-    if (available.length === 0) {
-        currentReviewCardId = null;
-        els.reviewTitle.textContent = gotCards.length
-            ? '今日复习完成'
-            : '还没有Get任何卡片';
-        els.reviewCore.textContent = gotCards.length
-            ? '今天加入复习池的卡片都已经复习过了。点击卡片进入复习模式。'
-            : '还没有已读卡片，先打开详情页点击 Get it 吧！';
-        els.btnReviewDo.classList.add('hidden');
-        els.btnReviewSkip.classList.add('hidden');
-        els.reviewCard.classList.remove('shattering', 'reviewing');
-        els.reviewSection.classList.remove('hidden');
-        return;
+function getReviewRingTheme(streakDays) {
+    if (streakDays >= 7) {
+        return { color: '#d4a94f', label: '金色冲刺' };
     }
-    const index = Math.floor(Math.random() * available.length);
-    const card = available[index];
-    currentReviewCardId = card.id;
-    els.reviewTitle.textContent = card.title || '知识复习';
-    els.reviewCore.textContent = card.core_point || card.summary || '打开一张卡片，回忆它的核心观点。';
+    if (streakDays >= 4) {
+        return { color: '#7c5cff', label: '紫色稳定期' };
+    }
+    if (streakDays >= 1) {
+        return { color: '#4f8cff', label: '蓝色起势中' };
+    }
+    return { color: '#b6b3ac', label: '灰阶起步' };
+}
+
+function getAllReviewCandidates() {
+    return cards.filter((card) => !card.is_integrated);
+}
+
+function pickDailyReviewCards() {
+    const candidates = getAllReviewCandidates();
+    if (candidates.length === 0) return [];
+
+    const preferred = shuffleArray(candidates.filter((card) => card.isRead));
+    const fallback = shuffleArray(candidates.filter((card) => !card.isRead));
+    return [...preferred, ...fallback].slice(0, Math.min(dailyReviewSettings.cardCount, candidates.length));
+}
+
+function ensureDailyReviewSession(forceNew = false) {
+    const today = todayKey();
+    const validIds = new Set(getAllReviewCandidates().map((card) => card.id));
+    const stored = loadReviewSession();
+
+    if (!forceNew && stored.date === today) {
+        const nextSession = normalizeReviewSession({
+            ...stored,
+            cardIds: stored.cardIds.filter((id) => validIds.has(id)),
+            skippedIds: stored.skippedIds.filter((id) => validIds.has(id))
+        });
+
+        if (nextSession.completed || nextSession.cardIds.length > 0) {
+            reviewSession = nextSession;
+            saveReviewSession(reviewSession);
+            return reviewSession;
+        }
+    }
+
+    reviewSession = normalizeReviewSession({
+        date: today,
+        cardIds: pickDailyReviewCards().map((card) => card.id),
+        skippedIds: [],
+        completed: false,
+        completedAt: '',
+        correctCount: 0,
+        wrongCount: 0
+    });
+    saveReviewSession(reviewSession);
+    return reviewSession;
+}
+
+function getReviewQueueIds(session = reviewSession) {
+    return safeList(session.cardIds).filter((id) => !safeList(session.skippedIds).includes(id));
+}
+
+function getCardById(cardId) {
+    return cards.find((card) => card.id === cardId) || null;
+}
+
+function includeCardInTodayReviewSession(cardId) {
+    if (!cardId) return;
+    reviewSession = ensureDailyReviewSession(cards.length > 0 ? false : true);
+
+    const normalizedIds = safeList(reviewSession.cardIds).filter((id) => id !== cardId);
+    reviewSession.cardIds = [cardId, ...normalizedIds];
+    reviewSession.skippedIds = safeList(reviewSession.skippedIds).filter((id) => id !== cardId);
+    reviewSession.completed = false;
+    reviewSession.completedAt = '';
+    reviewSession.correctCount = 0;
+    reviewSession.wrongCount = 0;
+    saveReviewSession(reviewSession);
+}
+
+function setReviewCardFlip(flipped) {
+    reviewCardFlipped = !!flipped;
+    els.reviewCard.classList.toggle('is-flipped', reviewCardFlipped);
+}
+
+function applyReviewStats() {
+    const stats = loadReviewStats();
+    const theme = getReviewRingTheme(stats.streakDays);
+    const progress = Math.min(100, Math.round((Math.min(stats.streakDays, REVIEW_RING_GOAL) / REVIEW_RING_GOAL) * 100));
+
+    els.reviewStreakRing.style.setProperty('--ring-progress', `${Math.max(progress, stats.streakDays ? 18 : 0)}%`);
+    els.reviewStreakRing.style.setProperty('--ring-color', theme.color);
+    els.reviewStreakDays.textContent = String(stats.streakDays);
+    els.reviewStreakLabel.textContent = theme.label;
+    els.reviewPowerTotal.textContent = `知识力 ${stats.knowledgePower}`;
+    return stats;
+}
+
+function resetReviewCardContent() {
+    setReviewCardFlip(false);
     els.btnReviewDo.classList.remove('hidden');
     els.btnReviewSkip.classList.remove('hidden');
-    els.reviewCard.classList.remove('shattering', 'reviewing');
     els.reviewSection.classList.remove('hidden');
-    // 更新提示文字
-    const metaSpan = els.reviewCard.querySelector('.review-meta span');
-    if (metaSpan) metaSpan.textContent = `今日复习 · 点击进入滑动复习 (${available.length}张)`;
 }
 
-function completeReviewCard(withEffect) {
-    const card = cards.find(c => c.id === currentReviewCardId);
-    if (!card) return;
-    window.clearTimeout(reviewRevealTimer);
-    const finish = () => {
-        card.reviewed_on = todayKey();
-        saveCards();
-        renderDailyReview();
-    };
-    if (withEffect) {
-        els.reviewCard.classList.add('reviewing');
-        els.reviewCore.innerHTML = `
-            <strong>${escapeHTML(card.core_point || card.summary || '')}</strong>
-            <span>${safeList(card.key_points).slice(0, 3).map(escapeHTML).join(' / ')}</span>
-        `;
-        reviewRevealTimer = window.setTimeout(() => {
-            els.reviewCard.classList.add('shattering');
-            setTimeout(finish, 900);
-        }, 3000);
-    } else {
-        finish();
-    }
-}
+function renderDailyReview() {
+    const allCandidates = getAllReviewCandidates();
+    const stats = applyReviewStats();
+    dailyReviewSettings = loadReviewSettings();
+    reviewSession = ensureDailyReviewSession(allCandidates.length > 0 ? false : true);
 
-// 左右滑动复习模式
-function openSwipeReview() {
-    swipeReviewQueue = cards.filter(c => c.isRead && !c.is_integrated);
-    if (swipeReviewQueue.length === 0) {
-        alert('还没有已读卡片，先去详情页点击 Get it 吧！');
+    els.reviewCountPicker.querySelectorAll('[data-review-count]').forEach((button) => {
+        button.classList.toggle('active', Number(button.dataset.reviewCount) === dailyReviewSettings.cardCount);
+    });
+
+    if (allCandidates.length === 0) {
+        currentReviewCardId = null;
+        resetReviewCardContent();
+        els.reviewHeading.textContent = '进入复习';
+        els.reviewSubtext.textContent = '先生成几张卡片，再来开启随机复习。';
+        els.reviewMetaText.textContent = '随机复习';
+        els.reviewBackMeta.textContent = '今日队列';
+        els.reviewTitle.textContent = '还没有可复习卡片';
+        els.reviewCore.textContent = '系统会从全部现有卡片中随机抽取 3 到 5 张作为今日复习队列。';
+        els.reviewBackTitle.textContent = '暂无复习内容';
+        els.reviewBackCore.textContent = '先生成卡片，再回来开启答题复习。';
+        els.reviewHint.textContent = '生成卡片后，这里会自动出现今日随机复习入口。';
+        els.reviewQueueLabel.textContent = '待复习 0 张';
+        els.btnReviewDo.classList.add('hidden');
+        els.btnReviewSkip.classList.add('hidden');
         return;
     }
-    // 随机打乱
-    for (let i = swipeReviewQueue.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [swipeReviewQueue[i], swipeReviewQueue[j]] = [swipeReviewQueue[j], swipeReviewQueue[i]];
+
+    const queueIds = getReviewQueueIds(reviewSession);
+    const queueCards = queueIds.map(getCardById).filter(Boolean);
+    const currentCard = queueCards[0] || null;
+    currentReviewCardId = currentCard?.id || null;
+    resetReviewCardContent();
+
+    if (reviewSession.completed) {
+        els.reviewHeading.textContent = '今日打卡完成';
+        els.reviewSubtext.textContent = '恭喜您已经完成本次打卡，明天会自动刷新新的随机复习队列。';
+        els.reviewMetaText.textContent = '今日已完成';
+        els.reviewBackMeta.textContent = '完成状态';
+        els.reviewTitle.textContent = '恭喜您已经完成本次打卡';
+        els.reviewCore.textContent = `本轮答题答对 ${reviewSession.correctCount} 题，答错 ${reviewSession.wrongCount} 题，连续打卡 ${stats.streakDays} 天。`;
+        els.reviewBackTitle.textContent = '随机复习已完成';
+        els.reviewBackCore.textContent = '进度环已更新，明天会继续为你随机抽题。';
+        els.reviewHint.textContent = '今日任务完成，继续保持连续打卡。';
+        els.reviewQueueLabel.textContent = `今日完成 ${reviewSession.cardIds.length} 张`;
+        els.btnReviewDo.classList.add('hidden');
+        els.btnReviewSkip.classList.add('hidden');
+        return;
     }
+
+    if (!currentCard) {
+        els.reviewHeading.textContent = '今日队列已清空';
+        els.reviewSubtext.textContent = '当前随机队列已经处理完毕，你可以等待明天的新一轮复习。';
+        els.reviewMetaText.textContent = '今日复习';
+        els.reviewBackMeta.textContent = '今日队列';
+        els.reviewTitle.textContent = '今天没有待处理卡片了';
+        els.reviewCore.textContent = '你已经跳过或处理完今天抽到的全部卡片。';
+        els.reviewBackTitle.textContent = '今日队列已清空';
+        els.reviewBackCore.textContent = '明天会自动生成新的随机复习队列。';
+        els.reviewHint.textContent = '今日队列处理完成。';
+        els.reviewQueueLabel.textContent = '待复习 0 张';
+        els.btnReviewDo.classList.add('hidden');
+        els.btnReviewSkip.classList.add('hidden');
+        return;
+    }
+
+    els.reviewHeading.textContent = '进入复习';
+    els.reviewSubtext.textContent = `系统已从全部卡片中抽取 ${reviewSession.cardIds.length} 张，优先已读卡片，不足时自动补齐。`;
+    els.reviewMetaText.textContent = `今日复习 · 剩余 ${queueCards.length} 张`;
+    els.reviewBackMeta.textContent = `今日队列 · ${queueCards.length} 张`;
+    els.reviewTitle.textContent = currentCard.title || '知识复习';
+    els.reviewCore.textContent = currentCard.core_point || currentCard.summary || '点击翻转后开始今天的固定模板答题复习。';
+    els.reviewBackTitle.textContent = currentCard.title || '开始今日复习';
+    els.reviewBackCore.textContent = '先完成左滑右滑快速回忆，再进入核心观点选择题。';
+    els.reviewHint.textContent = '点击卡片翻转，选择“开始复习”或“跳过这张”。';
+    els.reviewQueueLabel.textContent = `待复习 ${queueCards.length} 张`;
+}
+
+function skipCurrentReviewCard() {
+    reviewSession = ensureDailyReviewSession();
+    const queueIds = getReviewQueueIds(reviewSession);
+    const currentId = queueIds[0];
+    if (!currentId) return;
+    if (!reviewSession.skippedIds.includes(currentId)) {
+        reviewSession.skippedIds.push(currentId);
+    }
+    saveReviewSession(reviewSession);
+    renderDailyReview();
+}
+
+function resetSwipeReviewFlow() {
+    window.clearTimeout(quizTransitionTimer);
+    swipeReviewQueue = [];
     swipeReviewIndex = 0;
     swipeUnderstood = 0;
     swipeConfused = 0;
+    swipeReviewResults = {};
+    activeReviewIds = [];
+    quizQueue = [];
+    quizIndex = 0;
+    quizCorrect = 0;
+    quizWrong = 0;
+    quizLocked = false;
+    currentQuizQuestion = null;
     els.swipeDone.classList.add('hidden');
+    els.quizStage.classList.add('hidden');
+    els.quizComplete.classList.add('hidden');
+    els.quizFeedback.classList.add('hidden');
+    els.quizFeedback.textContent = '';
+    els.quizOptions.innerHTML = '';
     els.swipeScene.style.display = '';
-    document.querySelector('.swipe-head').style.display = '';
+    els.swipeHead.style.display = '';
+    els.swipeCard.style.transform = '';
+    els.swipeCard.style.opacity = '1';
+    els.swipeCard.classList.remove('swiping-left', 'swiping-right');
+}
+
+function openSwipeReview() {
+    reviewSession = ensureDailyReviewSession();
+    const nextReviewIds = getReviewQueueIds(reviewSession);
+    const nextSwipeQueue = nextReviewIds.map(getCardById).filter(Boolean);
+    if (nextSwipeQueue.length === 0) {
+        alert('今天的随机复习队列已经空了，明天会自动刷新新题。');
+        renderDailyReview();
+        return;
+    }
+
+    resetSwipeReviewFlow();
+    setReviewCardFlip(false);
+    activeReviewIds = [...nextReviewIds];
+    swipeReviewQueue = [...nextSwipeQueue];
     els.swipeModal.classList.remove('hidden');
     renderSwipeReviewCard();
 }
 
 function closeSwipeReview() {
+    resetSwipeReviewFlow();
     els.swipeModal.classList.add('hidden');
     renderDailyReview();
 }
 
+function finishSwipeReview() {
+    els.swipeScene.style.display = 'none';
+    els.swipeActionsBar.classList.add('hidden');
+    els.swipeGestureHint.classList.add('hidden');
+    els.swipeHead.style.display = 'none';
+    els.swipeStatUnderstood.textContent = swipeUnderstood;
+    els.swipeStatConfused.textContent = swipeConfused;
+    els.swipeDone.classList.remove('hidden');
+    quizTransitionTimer = window.setTimeout(() => {
+        startQuizMode();
+    }, 900);
+}
+
 function renderSwipeReviewCard() {
     if (swipeReviewIndex >= swipeReviewQueue.length) {
-        // 复习完成
-        els.swipeScene.style.display = 'none';
-        document.querySelector('.swipe-head').style.display = 'none';
-        els.swipeStatUnderstood.textContent = swipeUnderstood;
-        els.swipeStatConfused.textContent = swipeConfused;
-        els.swipeDone.classList.remove('hidden');
+        finishSwipeReview();
         return;
     }
     const card = swipeReviewQueue[swipeReviewIndex];
@@ -889,7 +1220,239 @@ function renderSwipeReviewCard() {
     els.swipeCard.classList.remove('swiping-left', 'swiping-right');
     els.swipeArrowLeft.style.opacity = '0';
     els.swipeArrowRight.style.opacity = '0';
+    els.swipeActionsBar.classList.remove('hidden');
+    els.swipeGestureHint.classList.remove('hidden');
     refreshIcons();
+}
+
+function handleSwipeDecision(direction) {
+    if (!swipeReviewQueue.length || swipeReviewIndex >= swipeReviewQueue.length) return;
+    const currentCard = swipeReviewQueue[swipeReviewIndex];
+    if (!currentCard) return;
+
+    const understood = direction === 'understood';
+    if (understood) {
+        swipeUnderstood++;
+        swipeReviewResults[currentCard.id] = 'understood';
+    } else {
+        swipeConfused++;
+        swipeReviewResults[currentCard.id] = 'confused';
+    }
+
+    els.swipeArrowLeft.style.opacity = understood ? '1' : '0';
+    els.swipeArrowRight.style.opacity = understood ? '0' : '1';
+    els.swipeCard.classList.toggle('swiping-left', understood);
+    els.swipeCard.classList.toggle('swiping-right', !understood);
+    els.swipeCard.style.transition = 'transform 0.3s cubic-bezier(0.4,0,0.2,1), opacity 0.3s ease';
+    els.swipeCard.style.transform = understood
+        ? 'translateX(-110%) rotate(-10deg)'
+        : 'translateX(110%) rotate(10deg)';
+    els.swipeCard.style.opacity = '0';
+
+    window.setTimeout(() => {
+        els.swipeCard.style.transition = '';
+        swipeReviewIndex++;
+        renderSwipeReviewCard();
+    }, 320);
+}
+
+function getQuizPrompt(card) {
+    return String(card.core_point || card.summary || safeList(card.key_points)[0] || card.title || '').trim();
+}
+
+function getDistractorTexts(currentCard) {
+    const distractors = [];
+    const used = new Set([getQuizPrompt(currentCard)]);
+    const otherCards = shuffleArray(cards.filter((card) => !card.is_integrated && card.id !== currentCard.id));
+
+    otherCards.forEach((card) => {
+        [card.core_point, card.summary, ...safeList(card.key_points), card.action].forEach((value) => {
+            const text = String(value || '').trim();
+            if (!text || used.has(text) || distractors.length >= 3) return;
+            used.add(text);
+            distractors.push(text);
+        });
+    });
+
+    return distractors.slice(0, 3);
+}
+
+function buildQuizQuestion(card) {
+    const correctAnswer = getQuizPrompt(card);
+    const distractors = getDistractorTexts(card);
+    QUIZ_FALLBACK_OPTIONS.forEach((text) => {
+        if (distractors.length >= 3) return;
+        if (!text || text === correctAnswer || distractors.includes(text)) return;
+        distractors.push(text);
+    });
+    const options = shuffleArray([correctAnswer, ...distractors]).slice(0, 4);
+    const labels = ['A', 'B', 'C', 'D'];
+
+    return {
+        card,
+        correctAnswer,
+        options: options.map((text, index) => ({
+            label: labels[index] || String(index + 1),
+            text,
+            correct: text === correctAnswer
+        }))
+    };
+}
+
+function launchQuizCelebration() {
+    els.quizConfettiLayer.innerHTML = '';
+    const colors = ['#f6c453', '#7c5cff', '#4f8cff', '#52c26d', '#ff7a59'];
+    for (let i = 0; i < 18; i++) {
+        const piece = document.createElement('span');
+        piece.className = 'quiz-confetti';
+        piece.style.left = `${8 + Math.random() * 84}%`;
+        piece.style.background = colors[i % colors.length];
+        piece.style.animationDelay = `${Math.random() * 0.15}s`;
+        piece.style.setProperty('--confetti-x', `${(Math.random() - 0.5) * 140}px`);
+        piece.style.setProperty('--confetti-r', `${Math.random() * 320 - 160}deg`);
+        els.quizConfettiLayer.appendChild(piece);
+    }
+    window.setTimeout(() => {
+        els.quizConfettiLayer.innerHTML = '';
+    }, 1100);
+}
+
+function showKnowledgePower() {
+    els.quizPowerFloat.classList.remove('show');
+    void els.quizPowerFloat.offsetWidth;
+    els.quizPowerFloat.classList.add('show');
+}
+
+function updateQuizStatusText() {
+    const stats = loadReviewStats();
+    els.quizStreakText.textContent = `🔥 连续打卡 ${stats.streakDays} 天`;
+    els.quizScoreText.textContent = `答对 ${quizCorrect} 题`;
+}
+
+function renderQuizQuestion() {
+    if (quizIndex >= quizQueue.length) {
+        completeQuizReview();
+        return;
+    }
+
+    currentQuizQuestion = buildQuizQuestion(quizQueue[quizIndex]);
+    quizLocked = false;
+    els.swipeDone.classList.add('hidden');
+    els.quizStage.classList.remove('hidden');
+    els.quizCardTitle.textContent = currentQuizQuestion.card.title || '知识卡片';
+    els.quizProgress.textContent = `${quizIndex + 1} / ${quizQueue.length}`;
+    els.quizFeedback.classList.add('hidden');
+    els.quizFeedback.textContent = '';
+    updateQuizStatusText();
+    els.quizOptions.innerHTML = currentQuizQuestion.options.map((option, index) => `
+        <button type="button" class="quiz-option" data-option-index="${index}">
+            <span class="quiz-option-label">${option.label}</span>
+            <span class="quiz-option-text">${escapeHTML(option.text)}</span>
+        </button>
+    `).join('');
+
+    els.quizOptions.querySelectorAll('.quiz-option').forEach((button) => {
+        button.addEventListener('click', () => handleQuizAnswer(Number(button.dataset.optionIndex)));
+    });
+}
+
+function startQuizMode() {
+    window.clearTimeout(quizTransitionTimer);
+    const prioritizedIds = [
+        ...activeReviewIds.filter((id) => swipeReviewResults[id] === 'confused'),
+        ...activeReviewIds.filter((id) => swipeReviewResults[id] === 'understood')
+    ];
+
+    quizQueue = prioritizedIds.map(getCardById).filter(Boolean);
+    if (quizQueue.length === 0) {
+        closeSwipeReview();
+        return;
+    }
+
+    quizIndex = 0;
+    quizCorrect = 0;
+    quizWrong = 0;
+    els.quizComplete.classList.add('hidden');
+    renderQuizQuestion();
+}
+
+function handleQuizAnswer(optionIndex) {
+    if (quizLocked || !currentQuizQuestion) return;
+    quizLocked = true;
+
+    const selected = currentQuizQuestion.options[optionIndex];
+    const buttons = Array.from(els.quizOptions.querySelectorAll('.quiz-option'));
+    buttons.forEach((button, index) => {
+        const option = currentQuizQuestion.options[index];
+        button.disabled = true;
+        if (option.correct) {
+            button.classList.add('is-correct');
+        }
+    });
+
+    if (selected?.correct) {
+        quizCorrect++;
+        buttons[optionIndex]?.classList.add('is-correct');
+        els.quizFeedback.textContent = '回答正确，知识力 +1';
+        els.quizFeedback.className = 'quiz-feedback';
+        launchQuizCelebration();
+        showKnowledgePower();
+    } else {
+        quizWrong++;
+        buttons[optionIndex]?.classList.add('is-wrong');
+        els.quizFeedback.textContent = `答错了，正确答案：${currentQuizQuestion.correctAnswer}`;
+        els.quizFeedback.className = 'quiz-feedback is-wrong';
+    }
+
+    els.quizFeedback.classList.remove('hidden');
+    updateQuizStatusText();
+    window.setTimeout(() => {
+        quizIndex++;
+        renderQuizQuestion();
+    }, selected?.correct ? 1100 : 1500);
+}
+
+function updateReviewStreak(correctCount) {
+    const stats = loadReviewStats();
+    const today = todayKey();
+    if (stats.lastCheckInDate !== today) {
+        const yesterday = new Date();
+        yesterday.setDate(yesterday.getDate() - 1);
+        const yesterdayKey = yesterday.toISOString().split('T')[0];
+        stats.streakDays = stats.lastCheckInDate === yesterdayKey ? stats.streakDays + 1 : 1;
+        stats.lastCheckInDate = today;
+        stats.totalSessions += 1;
+    }
+    stats.knowledgePower += correctCount;
+    saveReviewStats(stats);
+    return stats;
+}
+
+function completeQuizReview() {
+    const stats = updateReviewStreak(quizCorrect);
+    activeReviewIds.forEach((id) => {
+        const card = getCardById(id);
+        if (!card) return;
+        card.reviewed_on = todayKey();
+        card.last_reviewed_at = new Date().toISOString();
+    });
+    saveCards();
+
+    reviewSession = ensureDailyReviewSession();
+    reviewSession.completed = true;
+    reviewSession.completedAt = new Date().toISOString();
+    reviewSession.correctCount = quizCorrect;
+    reviewSession.wrongCount = quizWrong;
+    saveReviewSession(reviewSession);
+
+    els.quizStage.classList.add('hidden');
+    els.quizComplete.classList.remove('hidden');
+    els.quizCompleteTitle.textContent = '恭喜您已经完成本次打卡';
+    els.quizCompleteCopy.textContent = `进度环已更新，连续打卡 ${stats.streakDays} 天，明天会继续为你随机抽题。`;
+    els.quizCompleteCorrect.textContent = String(quizCorrect);
+    els.quizCompleteWrong.textContent = String(quizWrong);
+    els.quizCompleteStreak.textContent = String(stats.streakDays);
+    applyReviewStats();
 }
 
 function bindSwipeReviewGestures() {
@@ -901,6 +1464,7 @@ function bindSwipeReviewGestures() {
     let dirLock = null;
 
     scene.addEventListener('pointerdown', (e) => {
+        if (!swipeReviewQueue.length || els.quizStage.classList.contains('hidden') === false) return;
         startX = e.clientX;
         startY = e.clientY;
         dx = 0;
@@ -952,27 +1516,9 @@ function bindSwipeReviewGestures() {
         card.classList.remove('swiping-left', 'swiping-right');
 
         if (dx < -60) {
-            // 左滑 → 理解
-            swipeUnderstood++;
-            card.style.transition = 'transform 0.3s cubic-bezier(0.4,0,0.2,1), opacity 0.3s ease';
-            card.style.transform = 'translateX(-110%) rotate(-10deg)';
-            card.style.opacity = '0';
-            setTimeout(() => {
-                card.style.transition = '';
-                swipeReviewIndex++;
-                renderSwipeReviewCard();
-            }, 320);
+            handleSwipeDecision('understood');
         } else if (dx > 60) {
-            // 右滑 → 没理解，也进入下一张
-            swipeConfused++;
-            card.style.transition = 'transform 0.3s cubic-bezier(0.4,0,0.2,1), opacity 0.3s ease';
-            card.style.transform = 'translateX(110%) rotate(10deg)';
-            card.style.opacity = '0';
-            setTimeout(() => {
-                card.style.transition = '';
-                swipeReviewIndex++;
-                renderSwipeReviewCard();
-            }, 320);
+            handleSwipeDecision('confused');
         } else {
             card.style.transition = 'transform 0.35s cubic-bezier(0.2,0.8,0.3,1), opacity 0.35s ease';
             card.style.transform = '';
@@ -1226,6 +1772,7 @@ function handleGetCard() {
     sourceCard.readAt = nextRead ? new Date().toISOString() : '';
     saveCards();
     if (nextRead) {
+        includeCardInTodayReviewSession(sourceCard.id);
         playGetAnimation();
     }
     renderCards();
@@ -1470,6 +2017,7 @@ ${text}`;
     
     cards.unshift(newCard);
     saveCards();
+    includeCardInTodayReviewSession(newCard.id);
     
     els.videoInput.value = '';
     currentView = 'home';

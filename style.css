@@ -273,14 +273,211 @@ a:hover {
     margin: 0 auto 22px;
 }
 
+.review-panel {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(250, 249, 245, 0.96));
+    border: 1px solid var(--color-border);
+    border-radius: 18px;
+    padding: 18px;
+    box-shadow: 0 18px 44px -34px rgba(26, 25, 25, 0.58);
+}
+
+.review-panel-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    align-items: flex-start;
+    margin-bottom: 14px;
+}
+
+.review-kicker {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--color-accent);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+}
+
+.review-panel-head h2 {
+    font-family: var(--font-sans);
+    font-size: 22px;
+    margin-bottom: 4px;
+}
+
+.review-subtext {
+    color: var(--color-text-muted);
+    font-size: 13px;
+}
+
+.streak-widget {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+}
+
+.streak-ring {
+    --ring-progress: 0%;
+    --ring-color: #b6b3ac;
+    width: 70px;
+    height: 70px;
+    padding: 5px;
+    border-radius: 50%;
+    background: conic-gradient(var(--ring-color) var(--ring-progress), rgba(217, 214, 206, 0.5) 0);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.55);
+}
+
+.streak-ring-inner {
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.94);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: var(--color-text-main);
+}
+
+.streak-ring-inner strong {
+    font-size: 22px;
+    line-height: 1;
+}
+
+.streak-ring-inner span {
+    font-size: 11px;
+    color: var(--color-text-muted);
+}
+
+.streak-meta {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    font-size: 12px;
+    color: var(--color-text-muted);
+}
+
+.streak-meta small {
+    font-size: 11px;
+}
+
+.review-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 18px;
+}
+
+.review-count-picker {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.review-count-btn {
+    border: 1px solid var(--color-border);
+    background: rgba(255, 255, 255, 0.85);
+    color: var(--color-text-muted);
+    border-radius: 999px;
+    padding: 6px 12px;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.review-count-btn.active {
+    background: var(--color-primary);
+    border-color: var(--color-primary);
+    color: #fff;
+}
+
+.review-summary {
+    display: inline-flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    color: var(--color-text-muted);
+    font-size: 12px;
+}
+
+.review-stack {
+    position: relative;
+    perspective: 1200px;
+    min-height: 236px;
+}
+
+.review-stack-shadow {
+    position: absolute;
+    inset: 0;
+    border-radius: 18px;
+    background: rgba(255, 255, 255, 0.65);
+    border: 1px solid rgba(229, 227, 219, 0.85);
+}
+
+.review-stack-shadow-1 {
+    transform: translateY(8px) scale(0.985);
+    opacity: 0.72;
+}
+
+.review-stack-shadow-2 {
+    transform: translateY(16px) scale(0.97);
+    opacity: 0.48;
+}
+
 .review-card {
+    position: relative;
+    z-index: 2;
+    min-height: 236px;
+    transform-style: preserve-3d;
+    transition: transform 0.65s cubic-bezier(0.22, 0.8, 0.28, 1);
+}
+
+.review-card.is-flipped {
+    transform: rotateY(180deg);
+}
+
+.review-face {
+    position: absolute;
+    inset: 0;
     background: linear-gradient(135deg, #fff, #faf9f5);
     border: 1px solid var(--color-border);
-    border-radius: 16px;
+    border-radius: 18px;
     padding: 18px;
     box-shadow: 0 16px 40px -34px rgba(26, 25, 25, 0.5);
-    position: relative;
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+    display: flex;
+    flex-direction: column;
     overflow: hidden;
+}
+
+.review-front {
+    transform: rotateY(0deg);
+    opacity: 1;
+    visibility: visible;
+}
+
+.review-back {
+    transform: rotateY(180deg);
+    opacity: 0;
+    visibility: hidden;
+}
+
+.review-card.is-flipped .review-front {
+    opacity: 0;
+    visibility: hidden;
+}
+
+.review-card.is-flipped .review-back {
+    opacity: 1;
+    visibility: visible;
 }
 
 .review-meta {
@@ -298,56 +495,30 @@ a:hover {
     height: 16px;
 }
 
-.review-card h2 {
+.review-face h3 {
     font-family: var(--font-sans);
     font-size: 20px;
     margin-bottom: 8px;
 }
 
-.review-card p {
+.review-face p {
     color: var(--color-text-regular);
     margin-bottom: 14px;
+    line-height: 1.7;
 }
 
-.review-card.reviewing {
-    transform: rotateY(180deg);
-}
-
-.review-card.reviewing > * {
-    transform: rotateY(180deg);
-}
-
-.review-card p span {
-    display: block;
-    margin-top: 8px;
-    color: var(--color-text-muted);
+.review-hint {
+    margin-top: auto;
     font-size: 13px;
+    color: var(--color-text-muted);
+    padding-top: 12px;
+    border-top: 1px solid rgba(229, 227, 219, 0.8);
 }
 
 .review-actions {
     display: flex;
     gap: 10px;
-}
-
-.review-card.shattering {
-    animation: shatterCard 0.9s ease-in forwards;
-}
-
-.review-card.shattering::before,
-.review-card.shattering::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background:
-        linear-gradient(35deg, transparent 48%, rgba(217, 119, 87, 0.45) 49%, transparent 50%),
-        linear-gradient(135deg, transparent 52%, rgba(36, 35, 32, 0.22) 53%, transparent 54%);
-    pointer-events: none;
-}
-
-@keyframes shatterCard {
-    0% { opacity: 1; transform: scale(1); filter: blur(0); }
-    45% { transform: scale(1.015) rotate(-0.5deg); }
-    100% { opacity: 0; transform: scale(0.92) translateY(-18px) rotate(2deg); filter: blur(3px); }
+    margin-top: auto;
 }
 
 .input-section:focus-within {
@@ -1311,9 +1482,11 @@ textarea::placeholder {
 .swipe-modal-glass {
     position: absolute;
     inset: 0;
-    background: rgba(30, 30, 30, 0.35);
-    backdrop-filter: blur(32px) saturate(140%);
-    -webkit-backdrop-filter: blur(32px) saturate(140%);
+    background:
+        radial-gradient(circle at top, rgba(255, 255, 255, 0.16), transparent 34%),
+        linear-gradient(180deg, rgba(28, 28, 30, 0.44) 0%, rgba(34, 34, 36, 0.64) 100%);
+    backdrop-filter: blur(28px) saturate(135%);
+    -webkit-backdrop-filter: blur(28px) saturate(135%);
 }
 
 .swipe-close {
@@ -1321,18 +1494,19 @@ textarea::placeholder {
     top: max(env(safe-area-inset-top, 12px), 12px);
     right: 16px;
     z-index: 10;
-    width: 36px;
-    height: 36px;
+    width: 42px;
+    height: 42px;
     display: flex;
     align-items: center;
     justify-content: center;
-    background: rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.14);
+    border: 1px solid rgba(255, 255, 255, 0.18);
     border: none;
     border-radius: 50%;
     padding: 0;
     color: #fff;
     cursor: pointer;
-    transition: background 0.2s;
+    transition: background 0.2s, transform 0.18s ease;
 }
 
 .swipe-close i {
@@ -1342,6 +1516,7 @@ textarea::placeholder {
 
 .swipe-close:active {
     background: rgba(255, 255, 255, 0.35);
+    transform: scale(0.96);
 }
 
 .swipe-wrap {
@@ -1349,32 +1524,64 @@ textarea::placeholder {
     z-index: 5;
     width: calc(100% - 48px);
     max-width: 360px;
-    max-height: calc(100dvh - 120px);
+    height: min(760px, calc(100dvh - 72px));
+    max-height: calc(100dvh - 72px);
     display: flex;
     flex-direction: column;
-    gap: 14px;
+    gap: 16px;
+    box-sizing: border-box;
+}
+
+.swipe-wrap::before {
+    content: '';
+    position: absolute;
+    inset: 54px -18px auto;
+    height: 220px;
+    border-radius: 999px;
+    background: radial-gradient(circle at center, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0) 68%);
+    filter: blur(20px);
+    pointer-events: none;
+    opacity: 0.72;
 }
 
 /* 头部 */
 .swipe-head {
     display: flex;
-    justify-content: space-between;
+    justify-content: center;
     align-items: center;
-    padding: 0 4px;
+    position: relative;
+    min-height: 44px;
+    padding: 4px 6px 0;
 }
 
 .swipe-head-title {
-    font-size: 17px;
-    font-weight: 600;
-    color: #fff;
+    font-size: 15px;
+    font-weight: 800;
+    color: rgba(255, 255, 255, 0.98);
     font-family: -apple-system, 'SF Pro Display', system-ui, sans-serif;
-    letter-spacing: -0.01em;
+    letter-spacing: -0.02em;
+    text-shadow: 0 10px 26px rgba(0, 0, 0, 0.18);
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    text-align: center;
+    white-space: nowrap;
 }
 
 .swipe-head-count {
-    font-size: 14px;
-    font-weight: 500;
-    color: rgba(255, 255, 255, 0.5);
+    margin-left: auto;
+    min-width: 54px;
+    padding: 7px 13px;
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 700;
+    text-align: center;
+    color: rgba(255, 255, 255, 0.92);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.09));
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.18),
+        0 14px 28px -24px rgba(0, 0, 0, 0.45);
     font-family: -apple-system, 'SF Pro Text', system-ui, sans-serif;
 }
 
@@ -1384,24 +1591,35 @@ textarea::placeholder {
     width: 100%;
     aspect-ratio: 3 / 4;
     max-height: 420px;
-    touch-action: pan-y;
+    touch-action: none;
+}
+
+.swipe-scene::before {
+    content: '';
+    position: absolute;
+    inset: 12px 20px -10px;
+    border-radius: 32px;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.03));
+    opacity: 0.4;
+    filter: blur(16px);
+    pointer-events: none;
 }
 
 .swipe-scene > .swipe-card {
     position: absolute;
     inset: 0;
-    background: rgba(255, 255, 255, 0.92);
-    backdrop-filter: blur(24px) saturate(160%);
-    -webkit-backdrop-filter: blur(24px) saturate(160%);
-    border-radius: 20px;
-    padding: 28px 24px 20px;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 247, 244, 0.96));
+    backdrop-filter: blur(20px) saturate(140%);
+    -webkit-backdrop-filter: blur(20px) saturate(140%);
+    border-radius: 28px;
+    padding: 26px 22px 22px;
     display: flex;
     flex-direction: column;
-    border: 0.5px solid rgba(255, 255, 255, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.84);
     box-shadow:
-        0 1px 2px rgba(0, 0, 0, 0.02),
-        0 4px 12px rgba(0, 0, 0, 0.05),
-        0 16px 40px -8px rgba(0, 0, 0, 0.08);
+        0 28px 54px -30px rgba(0, 0, 0, 0.42),
+        0 14px 28px -18px rgba(0, 0, 0, 0.24),
+        inset 0 1px 0 rgba(255, 255, 255, 0.72);
     user-select: none;
     -webkit-user-select: none;
     cursor: grab;
@@ -1410,24 +1628,37 @@ textarea::placeholder {
     box-sizing: border-box;
 }
 
+.swipe-scene > .swipe-card::before {
+    content: '';
+    position: absolute;
+    inset: 0 0 auto;
+    height: 120px;
+    background:
+        radial-gradient(circle at top left, rgba(255, 255, 255, 0.75), rgba(255, 255, 255, 0) 64%),
+        linear-gradient(180deg, rgba(247, 226, 214, 0.42), rgba(247, 226, 214, 0));
+    pointer-events: none;
+}
+
 .swipe-tag {
     align-self: flex-start;
     font-size: 12px;
-    font-weight: 600;
-    padding: 4px 10px;
-    background: rgba(0, 0, 0, 0.05);
-    color: #636366;
-    border-radius: 6px;
-    margin-bottom: 12px;
+    font-weight: 700;
+    padding: 7px 12px;
+    background: linear-gradient(180deg, rgba(226, 116, 79, 0.16), rgba(226, 116, 79, 0.09));
+    color: #c65f43;
+    border-radius: 999px;
+    margin-bottom: 16px;
+    border: 1px solid rgba(226, 116, 79, 0.14);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4);
     font-family: -apple-system, 'SF Pro Text', system-ui, sans-serif;
 }
 
 .swipe-card-title {
-    font-size: 24px;
-    font-weight: 700;
+    font-size: 22px;
+    font-weight: 800;
     color: #1d1d1f;
     line-height: 1.3;
-    margin: 0 0 14px;
+    margin: 0 0 12px;
     font-family: -apple-system, 'SF Pro Display', system-ui, sans-serif;
     letter-spacing: -0.02em;
 }
@@ -1435,20 +1666,24 @@ textarea::placeholder {
 .swipe-card-core {
     font-size: 16px;
     color: #3a3a3c;
-    line-height: 1.7;
-    margin: 0 0 16px;
+    line-height: 1.75;
+    margin: 0 0 18px;
     font-family: -apple-system, 'SF Pro Text', system-ui, sans-serif;
 }
 
 .swipe-card-points {
-    padding-left: 18px;
+    padding: 16px 16px 16px 34px;
     font-size: 15px;
-    color: #48484a;
-    line-height: 1.7;
+    color: #4b4b50;
+    line-height: 1.75;
     flex: 1;
     margin: 0;
     font-family: -apple-system, 'SF Pro Text', system-ui, sans-serif;
     overflow-y: auto;
+    border-radius: 20px;
+    background: linear-gradient(180deg, rgba(249, 246, 239, 0.92), rgba(255, 255, 255, 0.72));
+    border: 1px solid rgba(225, 220, 210, 0.68);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
 }
 
 .swipe-card-points li {
@@ -1521,11 +1756,69 @@ textarea::placeholder {
 
 .swipe-arrow-text {
     font-size: 13px;
-    font-weight: 600;
+    font-weight: 700;
     color: rgba(255, 255, 255, 0.85);
     font-family: -apple-system, 'SF Pro Text', system-ui, sans-serif;
     text-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
     white-space: nowrap;
+}
+
+.swipe-actions-bar {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+
+.swipe-action-btn {
+    min-height: 56px;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 20px;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.08));
+    color: #fff;
+    font-size: 16px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: transform 0.16s ease, background 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.14),
+        0 16px 30px -22px rgba(0, 0, 0, 0.44);
+}
+
+.swipe-action-btn:hover {
+    transform: translateY(-1px);
+}
+
+.swipe-action-understood {
+    background: linear-gradient(180deg, rgba(126, 199, 140, 0.98), rgba(110, 178, 123, 0.92));
+    border-color: rgba(150, 225, 164, 0.82);
+    color: #fff;
+}
+
+.swipe-action-understood:hover,
+.swipe-action-understood:active {
+    background: linear-gradient(180deg, rgba(132, 205, 144, 0.98), rgba(118, 190, 129, 0.94));
+    border-color: rgba(159, 226, 170, 0.82);
+}
+
+.swipe-action-confused {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.08));
+}
+
+.swipe-action-confused:hover,
+.swipe-action-confused:active {
+    background: rgba(255, 255, 255, 0.14);
+    border-color: rgba(255, 255, 255, 0.22);
+}
+
+.swipe-gesture-hint {
+    text-align: center;
+    font-size: 12px;
+    line-height: 1.6;
+    color: rgba(255, 255, 255, 0.78);
+    padding: 4px 12px 0;
+    text-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
 }
 
 /* 完成画面 */
@@ -1624,6 +1917,352 @@ textarea::placeholder {
     transform: scale(0.97);
 }
 
+.quiz-stage,
+.quiz-complete {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: min(100%, 440px);
+    margin: auto;
+    padding: 18px 0 8px;
+    color: #fff;
+    animation: fadeInUp 0.32s ease;
+    box-sizing: border-box;
+}
+
+.quiz-stage {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 16px;
+    max-height: 100%;
+}
+
+.quiz-head {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 10px;
+    text-align: center;
+    position: relative;
+    min-height: 58px;
+}
+
+.quiz-head > div {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.quiz-kicker {
+    display: inline-block;
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.78);
+    margin-bottom: 8px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.quiz-card-title {
+    color: #fff;
+    font-family: -apple-system, 'SF Pro Display', system-ui, sans-serif;
+    font-size: 26px;
+    margin: 0;
+    letter-spacing: -0.03em;
+    line-height: 1.24;
+    max-width: 88%;
+    text-wrap: balance;
+}
+
+.quiz-progress {
+    position: absolute;
+    top: 50%;
+    right: 0;
+    transform: translateY(-50%);
+    min-width: 58px;
+    padding: 8px 12px;
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 700;
+    color: rgba(255, 255, 255, 0.94);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.08));
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    text-align: center;
+    box-shadow: 0 14px 28px -24px rgba(0, 0, 0, 0.42);
+}
+
+.quiz-body {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    gap: 16px;
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.15), rgba(255, 255, 255, 0.08)),
+        linear-gradient(180deg, rgba(45, 45, 52, 0.16), rgba(45, 45, 52, 0.06));
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 30px;
+    padding: 22px 18px 18px;
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    overflow-x: hidden;
+    overflow-y: auto;
+    text-align: center;
+    min-height: 0;
+    flex: 1 1 auto;
+    max-height: none;
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.1),
+        0 26px 48px -34px rgba(0, 0, 0, 0.52);
+}
+
+.quiz-body::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+}
+
+.quiz-question {
+    font-size: 20px;
+    font-weight: 700;
+    line-height: 1.55;
+    padding: 20px 18px;
+    border-radius: 24px;
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.08)),
+        linear-gradient(135deg, rgba(255, 214, 189, 0.12), rgba(255, 255, 255, 0));
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    text-align: center;
+    text-wrap: balance;
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.08),
+        0 16px 32px -28px rgba(0, 0, 0, 0.3);
+}
+
+.quiz-options {
+    display: grid;
+    gap: 14px;
+    width: 100%;
+    max-width: 372px;
+    margin: 0 auto;
+}
+
+.quiz-option {
+    width: 100%;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.07));
+    border-radius: 22px;
+    color: #fff;
+    padding: 16px 15px;
+    display: grid;
+    grid-template-columns: 32px 1fr;
+    gap: 12px;
+    text-align: left;
+    cursor: pointer;
+    transition: transform 0.18s ease, background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.08),
+        0 18px 28px -24px rgba(0, 0, 0, 0.42);
+}
+
+.quiz-option:hover {
+    transform: translateY(-1px);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.09));
+    box-shadow: 0 22px 34px -26px rgba(0, 0, 0, 0.44);
+}
+
+.quiz-option:disabled {
+    cursor: default;
+}
+
+.quiz-option-label {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.12));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+.quiz-option-text {
+    font-size: 15px;
+    line-height: 1.72;
+}
+
+.quiz-option.is-correct {
+    border-color: rgba(82, 194, 109, 0.72);
+    background: rgba(82, 194, 109, 0.18);
+}
+
+.quiz-option.is-wrong {
+    border-color: rgba(255, 122, 89, 0.72);
+    background: rgba(255, 122, 89, 0.18);
+}
+
+.quiz-feedback {
+    margin-top: 4px;
+    padding: 14px 15px;
+    border-radius: 18px;
+    background: linear-gradient(180deg, rgba(82, 194, 109, 0.18), rgba(82, 194, 109, 0.12));
+    color: #fff;
+    font-size: 14px;
+    line-height: 1.6;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.quiz-feedback.is-wrong {
+    background: linear-gradient(180deg, rgba(255, 122, 89, 0.2), rgba(255, 122, 89, 0.12));
+}
+
+.quiz-status-row {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: center;
+    margin-top: 2px;
+}
+
+.quiz-status-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 9px 13px;
+    border-radius: 999px;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.15), rgba(255, 255, 255, 0.08));
+    color: rgba(255, 255, 255, 0.92);
+    font-size: 12px;
+    font-weight: 600;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.quiz-confetti-layer {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    overflow: hidden;
+}
+
+.quiz-confetti {
+    position: absolute;
+    top: 38%;
+    width: 10px;
+    height: 16px;
+    border-radius: 3px;
+    opacity: 0;
+    animation: quizConfetti 0.95s ease-out forwards;
+}
+
+.quiz-power-float {
+    position: absolute;
+    left: 50%;
+    top: 24%;
+    transform: translate(-50%, 0) scale(0.85);
+    color: #ffd86b;
+    font-size: 26px;
+    font-weight: 800;
+    text-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
+    opacity: 0;
+    pointer-events: none;
+}
+
+.quiz-power-float.show {
+    animation: powerFloat 0.95s ease forwards;
+}
+
+.quiz-complete {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    text-align: center;
+}
+
+.quiz-complete-icon {
+    width: 76px;
+    height: 76px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: linear-gradient(180deg, rgba(255, 217, 122, 0.28), rgba(255, 255, 255, 0.16));
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    font-size: 32px;
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.2),
+        0 20px 36px -28px rgba(0, 0, 0, 0.42);
+}
+
+.quiz-complete-title {
+    font-size: 24px;
+    font-weight: 800;
+}
+
+.quiz-complete-copy {
+    max-width: 280px;
+    font-size: 14px;
+    line-height: 1.7;
+    color: rgba(255, 255, 255, 0.76);
+}
+
+.quiz-complete-stats {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+    width: 100%;
+}
+
+.quiz-complete-stat {
+    padding: 16px 12px;
+    border-radius: 20px;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.08));
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.quiz-complete-num {
+    display: block;
+    font-size: 28px;
+    font-weight: 800;
+    line-height: 1;
+}
+
+.quiz-complete-label {
+    display: block;
+    margin-top: 6px;
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.68);
+}
+
+@keyframes quizConfetti {
+    0% {
+        opacity: 1;
+        transform: translate3d(0, 0, 0) rotate(0deg);
+    }
+    100% {
+        opacity: 0;
+        transform: translate3d(var(--confetti-x), 180px, 0) rotate(var(--confetti-r));
+    }
+}
+
+@keyframes powerFloat {
+    0% {
+        opacity: 0;
+        transform: translate(-50%, 10px) scale(0.8);
+    }
+    25% {
+        opacity: 1;
+    }
+    100% {
+        opacity: 0;
+        transform: translate(-50%, -42px) scale(1);
+    }
+}
+
 @keyframes fadeInUp {
     from { opacity: 0; transform: translateY(16px); }
     to { opacity: 1; transform: translateY(0); }
@@ -1653,6 +2292,10 @@ textarea::placeholder {
     .app-shell *,
     .modal * {
         max-width: 100%;
+    }
+
+    .swipe-modal {
+        align-items: stretch;
     }
 
     .app-shell {
@@ -1771,17 +2414,175 @@ textarea::placeholder {
         margin-bottom: 14px;
     }
 
+    .review-panel {
+        padding: 14px;
+        border-radius: 18px;
+    }
+
+    .review-panel-head {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .streak-widget {
+        justify-content: space-between;
+    }
+
+    .review-toolbar {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .review-summary {
+        justify-content: space-between;
+    }
+
+    .review-stack {
+        min-height: 224px;
+    }
+
     .review-card {
+        min-height: 224px;
+    }
+
+    .review-face {
         border-radius: 16px;
-        padding: clamp(14px, 4vw, 18px);
+        padding: 16px;
     }
 
-    .review-card h2 {
-        font-size: 17px;
+    .review-face h3 {
+        font-size: 18px;
     }
 
-    .review-card p {
+    .review-face p,
+    .review-hint {
         font-size: 13px;
+    }
+
+    .review-actions {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .quiz-card-title {
+        font-size: 22px;
+        max-width: calc(100% - 76px);
+    }
+
+    .quiz-stage,
+    .quiz-complete {
+        width: 100%;
+        max-width: none;
+        padding: calc(52px + env(safe-area-inset-top)) 0 calc(12px + env(safe-area-inset-bottom));
+    }
+
+    .quiz-body {
+        border-radius: 26px;
+        padding: 18px 14px 16px;
+        min-height: 0;
+        max-height: none;
+    }
+
+    .quiz-question {
+        font-size: 18px;
+        padding: 17px 15px;
+    }
+
+    .quiz-progress {
+        right: 2px;
+    }
+
+    .quiz-option {
+        padding: 14px 13px;
+        border-radius: 19px;
+    }
+
+    .quiz-option-text {
+        font-size: 14px;
+    }
+
+    .quiz-complete-stats {
+        grid-template-columns: 1fr;
+    }
+
+    .swipe-actions-bar {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+        width: 100%;
+        margin-top: auto;
+    }
+
+    .swipe-wrap {
+        width: 100%;
+        max-width: none;
+        height: calc(100dvh - 24px);
+        max-height: calc(100dvh - 24px);
+        padding: calc(8px + env(safe-area-inset-top)) 14px calc(14px + env(safe-area-inset-bottom));
+        gap: 12px;
+        justify-content: flex-start;
+    }
+
+    .swipe-head {
+        min-height: 50px;
+        padding: 6px 56px 0;
+    }
+
+    .swipe-head-title {
+        left: 50%;
+        width: max-content;
+        max-width: calc(100% - 128px);
+        font-size: 20px;
+        letter-spacing: -0.03em;
+    }
+
+    .swipe-head-count {
+        min-width: 62px;
+        padding: 8px 12px;
+    }
+
+    .swipe-scene {
+        flex: 1 1 auto;
+        aspect-ratio: auto;
+        min-height: min(60dvh, 560px);
+        height: auto;
+        max-height: none;
+        display: flex;
+        align-items: center;
+    }
+
+    .swipe-scene > .swipe-card {
+        border-radius: 26px;
+        padding: 20px 16px 18px;
+    }
+
+    .swipe-card-title {
+        font-size: 19px;
+        margin-bottom: 8px;
+    }
+
+    .swipe-card-core {
+        font-size: 14px;
+        margin-bottom: 14px;
+    }
+
+    .swipe-card-points {
+        font-size: 13px;
+        padding: 14px 12px 14px 28px;
+        flex: 1 1 auto;
+    }
+
+    .swipe-action-btn {
+        min-height: 54px;
+        font-size: 14px;
+        border-radius: 18px;
+        padding: 0 10px;
+    }
+
+    .swipe-gesture-hint {
+        font-size: 11px;
+        line-height: 1.55;
+        padding-top: 0;
+        padding-bottom: 2px;
     }
 
     .input-section {

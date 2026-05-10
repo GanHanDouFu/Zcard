@@ -33,16 +33,65 @@
 
         <main class="main-content">
             <section id="review-section" class="review-section hidden">
-                <div class="review-card" id="review-card" style="cursor:pointer">
-                    <div class="review-meta">
-                        <i data-lucide="book-marked"></i>
-                        <span>今日复习</span>
+                <div class="review-panel">
+                    <div class="review-panel-head">
+                        <div>
+                            <div class="review-kicker">随机复习</div>
+                            <h2 id="review-heading">今日待复习</h2>
+                            <p id="review-subtext" class="review-subtext">系统会从全部卡片中随机抽取今日复习队列。</p>
+                        </div>
+                        <div class="streak-widget">
+                            <div id="review-streak-ring" class="streak-ring">
+                                <div class="streak-ring-inner">
+                                    <strong id="review-streak-days">0</strong>
+                                    <span>天</span>
+                                </div>
+                            </div>
+                            <div class="streak-meta">
+                                <span>连续打卡</span>
+                                <small id="review-streak-label">灰阶起步</small>
+                            </div>
+                        </div>
                     </div>
-                    <h2 id="review-title">卡片标题</h2>
-                    <p id="review-core">核心观点</p>
-                    <div class="review-actions">
-                        <button id="btn-review-do" class="btn btn-primary">复习</button>
-                        <button id="btn-review-skip" class="btn btn-secondary">跳过</button>
+
+                    <div class="review-toolbar">
+                        <div id="review-count-picker" class="review-count-picker" aria-label="今日复习数量">
+                            <button type="button" class="review-count-btn" data-review-count="3">3张</button>
+                            <button type="button" class="review-count-btn" data-review-count="4">4张</button>
+                            <button type="button" class="review-count-btn" data-review-count="5">5张</button>
+                        </div>
+                        <div class="review-summary">
+                            <span id="review-queue-label">待复习 0 张</span>
+                            <span id="review-power-total">知识力 0</span>
+                        </div>
+                    </div>
+
+                    <div class="review-stack" id="review-stack" style="cursor:pointer">
+                        <div class="review-stack-shadow review-stack-shadow-1"></div>
+                        <div class="review-stack-shadow review-stack-shadow-2"></div>
+                        <div class="review-card" id="review-card">
+                            <div class="review-face review-front">
+                                <div class="review-meta">
+                                    <i data-lucide="book-marked"></i>
+                                    <span id="review-meta-text">今日复习</span>
+                                </div>
+                                <h3 id="review-title">卡片标题</h3>
+                                <p id="review-core">核心观点</p>
+                                <div class="review-hint" id="review-hint">点击卡片翻转，决定是否进入今天的答题复习。</div>
+                            </div>
+                            <div class="review-face review-back">
+                                <div class="review-meta">
+                                    <i data-lucide="layers-3"></i>
+                                    <span id="review-back-meta">今日队列</span>
+                                </div>
+                                <h3 id="review-back-title">开始今日复习</h3>
+                                <p id="review-back-core">先完成左滑右滑，再进入固定模板答题。</p>
+                                <div class="review-actions">
+                                    <button id="btn-review-do" class="btn btn-primary">开始复习</button>
+                                    <button id="btn-review-skip" class="btn btn-secondary">跳过这张</button>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </section>
@@ -74,10 +123,16 @@
                             <span class="swipe-arrow-icon">→</span>
                         </div>
                     </div>
+                    <div class="swipe-actions-bar" id="swipe-actions-bar">
+                        <button class="swipe-action-btn swipe-action-understood" id="btn-swipe-understood" type="button">左滑也可 · 理解</button>
+                        <button class="swipe-action-btn swipe-action-confused" id="btn-swipe-confused" type="button">右滑也可 · 没理解</button>
+                    </div>
+                    <div class="swipe-gesture-hint" id="swipe-gesture-hint">可直接左右拖动卡片；如果当前设备不方便滑动，也可以点击下方按钮继续。</div>
 
                     <div class="swipe-done hidden" id="swipe-done">
                         <div class="swipe-done-icon">✓</div>
-                        <div class="swipe-done-text">复习完成</div>
+                        <div class="swipe-done-text">滑动复习完成</div>
+                        <div class="swipe-done-sub">正在进入答题复习</div>
                         <div class="swipe-done-stats">
                             <div class="swipe-stat">
                                 <span class="swipe-stat-num" id="swipe-stat-understood">0</span>
@@ -89,7 +144,49 @@
                                 <span class="swipe-stat-label">没理解</span>
                             </div>
                         </div>
-                        <button class="swipe-done-btn" id="btn-swipe-done-close">完成</button>
+                        <button class="swipe-done-btn" id="btn-swipe-done-close">立即答题</button>
+                    </div>
+
+                    <div class="quiz-stage hidden" id="quiz-stage">
+                        <div class="quiz-head">
+                            <div>
+                                <span class="quiz-kicker">答题复习</span>
+                                <h3 id="quiz-card-title" class="quiz-card-title">卡片标题</h3>
+                            </div>
+                            <span class="quiz-progress" id="quiz-progress">1 / 5</span>
+                        </div>
+                        <div class="quiz-body">
+                            <div class="quiz-question">这张卡片的核心观点是什么？</div>
+                            <div class="quiz-options" id="quiz-options"></div>
+                            <div class="quiz-feedback hidden" id="quiz-feedback"></div>
+                            <div class="quiz-status-row">
+                                <span class="quiz-status-pill" id="quiz-streak-text">🔥 连续打卡 0 天</span>
+                                <span class="quiz-status-pill" id="quiz-score-text">答对 0 题</span>
+                            </div>
+                        </div>
+                        <div class="quiz-confetti-layer" id="quiz-confetti-layer" aria-hidden="true"></div>
+                        <div class="quiz-power-float" id="quiz-power-float">知识力 +1</div>
+                    </div>
+
+                    <div class="quiz-complete hidden" id="quiz-complete">
+                        <div class="quiz-complete-icon">🔥</div>
+                        <div class="quiz-complete-title" id="quiz-complete-title">恭喜您已经完成本次打卡</div>
+                        <div class="quiz-complete-copy" id="quiz-complete-copy">今日复习与答题都已完成。</div>
+                        <div class="quiz-complete-stats">
+                            <div class="quiz-complete-stat">
+                                <span id="quiz-complete-correct" class="quiz-complete-num">0</span>
+                                <span class="quiz-complete-label">答对</span>
+                            </div>
+                            <div class="quiz-complete-stat">
+                                <span id="quiz-complete-wrong" class="quiz-complete-num">0</span>
+                                <span class="quiz-complete-label">答错</span>
+                            </div>
+                            <div class="quiz-complete-stat">
+                                <span id="quiz-complete-streak" class="quiz-complete-num">0</span>
+                                <span class="quiz-complete-label">连续天数</span>
+                            </div>
+                        </div>
+                        <button class="swipe-done-btn" id="btn-quiz-complete-close">完成</button>
                     </div>
                 </div>
             </div>
