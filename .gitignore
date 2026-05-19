@@ -1,0 +1,11 @@
+.env
+node_modules/
+npm-debug.log*
+
+# 本地验证和浏览器调试产物
+artifacts/
+chrome-profile/
+
+# 系统文件
+.DS_Store
+Thumbs.db

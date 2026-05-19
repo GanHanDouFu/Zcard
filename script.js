@@ -58,8 +58,7 @@ try {
 // API 配置
 const API_URL = 'https://api.deepseek.com/chat/completions';
 const PROXY_API_URL = '/api/deepseek';
-const DEFAULT_DEMO_API_KEY = 'sk-4591f6e3f254426abe448bfc21e6d86d';
-let API_KEY = sessionStorage.getItem('deepseek_api_key') || DEFAULT_DEMO_API_KEY;
+let API_KEY = sessionStorage.getItem('deepseek_api_key') || '';
 const TEXT_STYLE_DEFAULTS = {
     title: { fontSize: '16px', color: '#1f1f1d' },
     core_point: { fontSize: '16px', color: '#1f1f1d' },
@@ -508,13 +507,13 @@ function bindEvents() {
     els.btnExport.addEventListener('click', handleExportImages);
 
     els.cardsContainer.addEventListener('click', (e) => {
-        const starBtn = e.target.closest('.card-got-toggle');
+        const starBtn = e.target.closest('.card-favorite-toggle');
         if (!starBtn) return;
         e.preventDefault();
         e.stopImmediatePropagation();
         e.stopPropagation();
         const card = cards.find(item => item.id === starBtn.dataset.id);
-        if (card) toggleGotCard(card);
+        if (card) toggleFavoriteCard(card);
     }, true);
     
     // 详情弹窗
@@ -701,10 +700,10 @@ function renderCards() {
         const cardEl = document.createElement('div');
         normalizeCard(card);
         cardEl.dataset.cardId = card.id;
-        cardEl.className = `knowledge-card-wrap ${isIntegratedCard ? 'integrated' : ''} ${card.isFavorite ? 'got-card' : ''} ${card.isRead ? 'read-card' : ''} ${card.is_todo && card.todo_status === '已完成' ? 'todo-completed' : ''} ${isSelected ? 'is-selected' : ''}`;
+        cardEl.className = `knowledge-card-wrap ${isIntegratedCard ? 'integrated' : ''} ${card.isFavorite ? 'favorite-card' : ''} ${card.isRead ? 'read-card' : ''} ${card.is_todo && card.todo_status === '已完成' ? 'todo-completed' : ''} ${isSelected ? 'is-selected' : ''}`;
         
         const starHtml = `
-            <button type="button" class="card-got-toggle ${card.isFavorite ? 'active' : ''}" data-id="${escapeHTML(card.id)}" title="${card.isFavorite ? '取消收藏' : '收藏'}" aria-label="${card.isFavorite ? '取消收藏' : '收藏'}">
+            <button type="button" class="card-favorite-toggle ${card.isFavorite ? 'active' : ''}" data-id="${escapeHTML(card.id)}" title="${card.isFavorite ? '取消收藏' : '收藏'}" aria-label="${card.isFavorite ? '取消收藏' : '收藏'}">
                 <i data-lucide="star"></i>
             </button>
         `;
@@ -760,7 +759,7 @@ function renderCards() {
                 cardEl.querySelector('.swipe-card').style.transform = '';
                 return;
             }
-            if (e.target.closest('.card-got-toggle') || e.target.closest('.swipe-delete')) return;
+            if (e.target.closest('.card-favorite-toggle') || e.target.closest('.swipe-delete')) return;
             openCardActions(card);
         });
 
@@ -776,7 +775,7 @@ function renderCards() {
             renderDailyReview();
         });
 
-        const starBtn = cardEl.querySelector('.card-got-toggle');
+        const starBtn = cardEl.querySelector('.card-favorite-toggle');
         ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'touchstart', 'touchend'].forEach((eventName) => {
             starBtn.addEventListener(eventName, (e) => {
                 e.stopPropagation();
@@ -873,10 +872,10 @@ function closeSearchResults() {
 function renderResultCardHTML(card) {
     normalizeCard(card);
     return `
-        <article class="knowledge-card search-result-card ${card.isFavorite ? 'got-card' : ''}" data-id="${escapeHTML(card.id)}">
+        <article class="knowledge-card search-result-card ${card.isFavorite ? 'favorite-card' : ''}" data-id="${escapeHTML(card.id)}">
             <div class="card-header">
                 <span class="card-badge">${escapeHTML(card.category || '未分类')}</span>
-                ${card.isFavorite ? '<span class="got-star" title="已收藏">⭐</span>' : ''}
+                ${card.isFavorite ? '<span class="favorite-star" title="已收藏">⭐</span>' : ''}
             </div>
             <h3 class="card-title" ${styleAttr(card, 'title')}>${escapeHTML(card.title)}</h3>
             <p class="card-core" ${styleAttr(card, 'core_point')}>${escapeHTML(card.core_point || card.summary || '')}</p>
@@ -891,7 +890,7 @@ function updateCollectionTabState() {
     collectTab.classList.toggle('has-favorites', hasFavorite);
 }
 
-function toggleGotCard(card) {
+function toggleFavoriteCard(card) {
     normalizeCard(card);
     card.isFavorite = !card.isFavorite;
     saveCards();
@@ -2375,66 +2374,239 @@ function nextFlashcard(remembered) {
     }, 300);
 }
 
-// 导出图片 (html2canvas)
-async function handleExportImages() {
-    if (selectedCards.size === 0) return;
-    
-    const selectedCardsData = cards.filter(c => selectedCards.has(c.id));
-    const container = document.getElementById('export-container');
-    container.innerHTML = '';
-    container.classList.remove('hidden');
-    
-    // 构建长图 HTML 结构
-    const exportHtml = `
-        <div style="width: 800px; padding: 40px; background: #f8fafc; font-family: sans-serif;">
-            <div style="text-align: center; margin-bottom: 40px;">
-                <h1 style="color: #2563eb; font-size: 32px; margin-bottom: 10px;">抖音知识卡片</h1>
-                <p style="color: #64748b; font-size: 18px;">让每一条视频都变成你的知识</p>
-            </div>
-            <div style="display: flex; flex-direction: column; gap: 24px;">
-                ${selectedCardsData.map(card => `
-                    <div style="background: white; border-radius: 16px; padding: 24px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); border: 1px solid #e2e8f0;">
-                        <div style="display: inline-block; background: #eff6ff; color: #2563eb; padding: 4px 12px; border-radius: 99px; font-size: 14px; margin-bottom: 12px; font-weight: bold;">
-                            ${escapeHTML(card.is_integrated ? '整合' : card.category)}
-                        </div>
-                        <h2 style="font-size: 24px; margin-bottom: 16px; color: #0f172a;">${escapeHTML(card.title)}</h2>
-                        <p style="font-size: 16px; color: #334155; margin-bottom: 16px;">${escapeHTML(card.core_point || card.summary)}</p>
-                        ${card.key_points ? `
-                        <ul style="padding-left: 20px; color: #475569; font-size: 15px;">
-                            ${safeList(card.key_points).map(p => `<li style="margin-bottom: 8px;">${escapeHTML(p)}</li>`).join('')}
-                        </ul>` : ''}
-                    </div>
-                `).join('')}
-            </div>
-            <div style="text-align: center; margin-top: 40px; color: #94a3b8; font-size: 14px;">
-                Generated by Zcard
-            </div>
-        </div>
-    `;
-    
-    container.innerHTML = exportHtml;
-    
-    try {
-        if (typeof window.html2canvas !== 'function') {
-            throw new Error('图片导出库加载失败，请检查网络或稍后重试');
+function drawRoundedRect(ctx, x, y, width, height, radius) {
+    const r = Math.min(radius, width / 2, height / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + width, y, x + width, y + height, r);
+    ctx.arcTo(x + width, y + height, x, y + height, r);
+    ctx.arcTo(x, y + height, x, y, r);
+    ctx.arcTo(x, y, x + width, y, r);
+    ctx.closePath();
+}
+
+function wrapCanvasText(ctx, text, maxWidth) {
+    const content = String(text || '').trim();
+    if (!content) return [];
+    const lines = [];
+    let current = '';
+    for (const char of content) {
+        const next = current + char;
+        if (ctx.measureText(next).width <= maxWidth || !current) {
+            current = next;
+        } else {
+            lines.push(current);
+            current = char;
         }
-        const canvas = await html2canvas(container.firstElementChild, {
-            scale: 2,
-            useCORS: true,
-            backgroundColor: '#f8fafc'
-        });
-        
-        const link = document.createElement('a');
-        link.download = `知识卡片导出_${Date.now()}.png`;
-        link.href = canvas.toDataURL('image/png');
-        link.click();
-        
+    }
+    if (current) lines.push(current);
+    return lines;
+}
+
+function measureExportCardHeight(ctx, card, cardWidth, styles) {
+    const innerWidth = cardWidth - styles.cardPadding * 2;
+    const titleLines = wrapCanvasText(ctx, card.title, innerWidth);
+    ctx.font = styles.coreFont;
+    const coreLines = wrapCanvasText(ctx, card.core_point || card.summary || '', innerWidth);
+    ctx.font = styles.pointFont;
+    const pointLines = safeList(card.key_points).flatMap((point) => wrapCanvasText(ctx, `• ${point}`, innerWidth - 8));
+    ctx.font = styles.noteFont;
+    const quoteLines = card.quote ? wrapCanvasText(ctx, `金句：${card.quote}`, innerWidth) : [];
+    const actionLines = card.action ? wrapCanvasText(ctx, `行动建议：${card.action}`, innerWidth) : [];
+
+    return (
+        styles.cardPadding +
+        styles.pillHeight +
+        18 +
+        titleLines.length * styles.titleLineHeight +
+        12 +
+        coreLines.length * styles.coreLineHeight +
+        (pointLines.length ? 18 + pointLines.length * styles.pointLineHeight : 0) +
+        (quoteLines.length ? 18 + quoteLines.length * styles.noteLineHeight : 0) +
+        (actionLines.length ? 14 + actionLines.length * styles.noteLineHeight : 0) +
+        styles.cardPadding
+    );
+}
+
+function drawExportTextBlock(ctx, lines, x, y, lineHeight, color) {
+    ctx.fillStyle = color;
+    lines.forEach((line, index) => {
+        ctx.fillText(line, x, y + index * lineHeight);
+    });
+    return y + lines.length * lineHeight;
+}
+
+function buildExportCanvas(selectedCardsData) {
+    const width = 1200;
+    const padding = 56;
+    const gap = 28;
+    const styles = {
+        cardPadding: 32,
+        pillHeight: 36,
+        titleFont: '700 40px "Microsoft YaHei", "PingFang SC", sans-serif',
+        titleLineHeight: 52,
+        coreFont: '400 26px "Microsoft YaHei", "PingFang SC", sans-serif',
+        coreLineHeight: 40,
+        pointFont: '400 24px "Microsoft YaHei", "PingFang SC", sans-serif',
+        pointLineHeight: 36,
+        noteFont: '400 22px "Microsoft YaHei", "PingFang SC", sans-serif',
+        noteLineHeight: 34
+    };
+
+    const measureCanvas = document.createElement('canvas');
+    const measureCtx = measureCanvas.getContext('2d');
+    if (!measureCtx) {
+        throw new Error('浏览器不支持 Canvas 导出');
+    }
+
+    const cardWidth = width - padding * 2;
+    let totalHeight = 210;
+    selectedCardsData.forEach((card) => {
+        measureCtx.font = styles.titleFont;
+        totalHeight += measureExportCardHeight(measureCtx, normalizeCard(card), cardWidth, styles) + gap;
+    });
+    totalHeight += 80;
+
+    const dpr = Math.max(2, Math.ceil(window.devicePixelRatio || 1));
+    const canvas = document.createElement('canvas');
+    canvas.width = width * dpr;
+    canvas.height = totalHeight * dpr;
+    canvas.style.width = `${width}px`;
+    canvas.style.height = `${totalHeight}px`;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+        throw new Error('无法创建导出画布');
+    }
+
+    ctx.scale(dpr, dpr);
+    ctx.fillStyle = '#f8fafc';
+    ctx.fillRect(0, 0, width, totalHeight);
+
+    ctx.fillStyle = '#2563eb';
+    ctx.font = '700 42px "Microsoft YaHei", "PingFang SC", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Zcard 知识卡片', width / 2, 76);
+    ctx.fillStyle = '#64748b';
+    ctx.font = '400 24px "Microsoft YaHei", "PingFang SC", sans-serif';
+    ctx.fillText('让每一条视频都变成你的知识', width / 2, 118);
+
+    let y = 160;
+    ctx.textAlign = 'left';
+
+    selectedCardsData.forEach((rawCard) => {
+        const card = normalizeCard(rawCard);
+        const cardHeight = measureExportCardHeight(measureCtx, card, cardWidth, styles);
+
+        ctx.save();
+        drawRoundedRect(ctx, padding, y, cardWidth, cardHeight, 28);
+        ctx.fillStyle = '#ffffff';
+        ctx.fill();
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = '#e2e8f0';
+        ctx.stroke();
+        ctx.restore();
+
+        let cursorY = y + styles.cardPadding;
+        const cursorX = padding + styles.cardPadding;
+        const innerWidth = cardWidth - styles.cardPadding * 2;
+        const pillText = card.isIntegrated || card.is_integrated ? `整合 · ${card.category || '未分类'}` : (card.category || '未分类');
+        const pillWidth = Math.max(120, Math.ceil(measureCtx.measureText(pillText).width) + 28);
+
+        drawRoundedRect(ctx, cursorX, cursorY, pillWidth, styles.pillHeight, 999);
+        ctx.fillStyle = '#eff6ff';
+        ctx.fill();
+        ctx.fillStyle = '#2563eb';
+        ctx.font = '700 18px "Microsoft YaHei", "PingFang SC", sans-serif';
+        ctx.fillText(pillText, cursorX + 14, cursorY + 24);
+        cursorY += styles.pillHeight + 18;
+
+        ctx.fillStyle = '#0f172a';
+        ctx.font = styles.titleFont;
+        const titleLines = wrapCanvasText(ctx, card.title, innerWidth);
+        cursorY = drawExportTextBlock(ctx, titleLines, cursorX, cursorY + 8, styles.titleLineHeight, '#0f172a');
+
+        ctx.font = styles.coreFont;
+        const coreLines = wrapCanvasText(ctx, card.core_point || card.summary || '', innerWidth);
+        cursorY = drawExportTextBlock(ctx, coreLines, cursorX, cursorY + 4, styles.coreLineHeight, '#334155');
+
+        ctx.font = styles.pointFont;
+        const pointTexts = safeList(card.key_points).map((point) => `• ${point}`);
+        if (pointTexts.length) {
+            cursorY += 14;
+            pointTexts.forEach((pointText) => {
+                const lines = wrapCanvasText(ctx, pointText, innerWidth - 8);
+                cursorY = drawExportTextBlock(ctx, lines, cursorX, cursorY + 10, styles.pointLineHeight, '#475569');
+            });
+        }
+
+        ctx.font = styles.noteFont;
+        if (card.quote) {
+            const quoteLines = wrapCanvasText(ctx, `金句：${card.quote}`, innerWidth);
+            cursorY = drawExportTextBlock(ctx, quoteLines, cursorX, cursorY + 16, styles.noteLineHeight, '#7c2d12');
+        }
+        if (card.action) {
+            const actionLines = wrapCanvasText(ctx, `行动建议：${card.action}`, innerWidth);
+            cursorY = drawExportTextBlock(ctx, actionLines, cursorX, cursorY + 12, styles.noteLineHeight, '#1d4ed8');
+        }
+
+        y += cardHeight + gap;
+    });
+
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '400 18px "Microsoft YaHei", "PingFang SC", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Generated by Zcard', width / 2, totalHeight - 36);
+
+    return canvas;
+}
+
+async function downloadCanvasImage(canvas, filename) {
+    const ua = navigator.userAgent || '';
+    const isIOS = /iPad|iPhone|iPod/.test(ua);
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png', 1));
+    if (!blob) {
+        throw new Error('图片编码失败，请稍后重试');
+    }
+
+    const objectUrl = URL.createObjectURL(blob);
+    if (isIOS) {
+        const previewTab = window.open(objectUrl, '_blank', 'noopener');
+        if (!previewTab) {
+            throw new Error('请允许浏览器打开新窗口后重试');
+        }
+        setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
+        alert('图片已在新窗口打开，请长按或保存到相册。');
+        return;
+    }
+
+    const link = document.createElement('a');
+    link.download = filename;
+    link.href = objectUrl;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+}
+
+// 导出图片
+async function handleExportImages() {
+    if (selectedCards.size === 0) {
+        alert('请先勾选要导出的卡片。');
+        return;
+    }
+
+    const selectedCardsData = cards
+        .filter((card) => selectedCards.has(card.id))
+        .map((card) => normalizeCard(card));
+
+    try {
+        const canvas = buildExportCanvas(selectedCardsData);
+        await downloadCanvasImage(canvas, `知识卡片导出_${Date.now()}.png`);
     } catch (e) {
         console.error('导出失败:', e);
         alert(`导出图片失败：${e.message || '未知错误'}`);
     } finally {
-        container.classList.add('hidden');
-        container.innerHTML = '';
         selectedCards.clear();
         updateBatchActions();
         renderCards();

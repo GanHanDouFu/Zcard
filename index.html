@@ -7,11 +7,9 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <title>Zcard - 让每一条视频都变成你的知识</title>
-    <link rel="stylesheet" href="style.css?v=20260510-swipe-scope">
+    <link rel="stylesheet" href="style.css?v=20260519-cleanup">
     <!-- 引入 Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
-    <!-- 引入 html2canvas 用于导出图片 -->
-    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 </head>
 <body>
     <div class="app-shell">
@@ -374,7 +372,7 @@
             <form class="settings-form" autocomplete="off" onsubmit="return false;">
                 <label for="api-key-input">DeepSeek API Key</label>
                 <input type="password" id="api-key-input" placeholder="sk-...">
-                <p class="help-text">静态演示版会从浏览器直连 DeepSeek，API Key 仅保存在当前标签页会话中；正式上线请改用后端代理。</p>
+                <p class="help-text">优先使用本地后端代理；这里填写的 Key 只作为演示兜底，并仅保存在当前标签页会话中。</p>
             </form>
             <div class="modal-footer">
                 <button id="btn-save-settings" class="btn btn-primary">保存设置</button>
@@ -398,9 +396,6 @@
         </div>
     </div>
 
-    <!-- 用于导出图片的隐藏容器 -->
-    <div id="export-container" class="export-container hidden"></div>
-
-    <script src="script.js?v=20260510-swipe-scope"></script>
+    <script src="script.js?v=20260519-cleanup"></script>
 </body>
 </html>

@@ -833,11 +833,11 @@ textarea::placeholder {
     color: white;
 }
 
-.knowledge-card.got-card {
+.knowledge-card.favorite-card {
     border-color: rgba(196, 124, 91, 0.42);
 }
 
-.got-star {
+.favorite-star {
     margin-left: auto;
     font-size: 16px;
     line-height: 1;
@@ -893,7 +893,7 @@ textarea::placeholder {
     box-shadow: 0 8px 18px -14px rgba(36, 35, 32, 0.45);
 }
 
-.card-got-toggle {
+.card-favorite-toggle {
     width: 28px;
     height: 28px;
     border: 0;
@@ -906,24 +906,24 @@ textarea::placeholder {
     cursor: pointer;
 }
 
-.card-got-toggle i {
+.card-favorite-toggle i {
     width: 19px;
     height: 19px;
     stroke-width: 2;
     fill: transparent;
 }
 
-.card-got-toggle.active {
+.card-favorite-toggle.active {
     color: #e0a11b;
 }
 
-.card-got-toggle.active i {
+.card-favorite-toggle.active i {
     fill: #e0a11b;
     stroke: #e0a11b;
 }
 
-.card-got-toggle.active svg,
-.card-got-toggle.active svg * {
+.card-favorite-toggle.active svg,
+.card-favorite-toggle.active svg * {
     fill: #e0a11b !important;
     stroke: #e0a11b !important;
 }
@@ -1457,13 +1457,6 @@ textarea::placeholder {
 .help-text {
     font-size: 13px;
     color: var(--color-text-muted);
-}
-
-/* 导出容器隐藏 */
-.export-container {
-    position: absolute;
-    left: -9999px;
-    top: 0;
 }
 
 /* 整合预览弹窗 */

@@ -1,10 +1,10 @@
 # Zcard AI 交接说明
 
-更新时间：2026-05-09
+更新时间：2026-05-19
 
 ## 当前目标
 
-这是一个纯前端 Demo：把短视频文案/链接整理成知识卡片，手机端优先，整体 UI 走 Claude / Claude Code 风格：白底、细边框、轻阴影、克制留白。
+这是一个黑客松演示用的轻后端 Demo：把短视频文案/链接整理成知识卡片，手机端优先，整体 UI 走 Claude / Claude Code 风格：白底、细边框、轻阴影、克制留白。
 
 当前用户明确说过：**先别提交 GitHub**。后续除非用户明确要求，否则只在本地改。
 
@@ -13,7 +13,7 @@
 项目目录：
 
 ```bash
-E:\Zcard
+E:\Zcard - 002
 ```
 
 本地预览：
@@ -31,16 +31,24 @@ http://localhost:8080/
 最近用于强刷缓存的链接：
 
 ```text
-http://localhost:8080/?v=fav-tab-yellow
+http://localhost:8080/?v=20260519-cleanup
 ```
 
 ## Git 状态
 
-当前有未提交改动：
+当前关键本地改动：
 
 ```text
+M AI_HANDOFF.md
+M README.md
+M index.html
+M package.json
 M script.js
+M server.js
 M style.css
+?? .env.example
+?? .gitignore
+?? tools/
 ```
 
 最近提交：
@@ -57,13 +65,9 @@ b80599c Add Get it review pool flow
 
 ## API 状态
 
-`script.js` 里写了 Demo DeepSeek Key：
+DeepSeek Key 已从前端和服务端硬编码中移除。
 
-```js
-const DEFAULT_DEMO_API_KEY = 'sk-4591f6e3f254426abe448bfc21e6d86d';
-```
-
-这是用户允许用于前端演示的。正式上线不应这样做。
+推荐复制 `.env.example` 为 `.env`，填写 `DEEPSEEK_API_KEY` 后用 `node server.js` 或 `npm start` 启动。页面设置里仍可临时填写 API Key 作为演示兜底，只保存在当前标签页 `sessionStorage`。如果后端代理和页面 Key 都不可用，生成/整合会走本地演示兜底逻辑。
 
 ## 当前核心数据字段
 
@@ -109,8 +113,8 @@ card.isRead = !!card.isGot
 
 相关代码：
 
-- `toggleGotCard(card)`：现在实际是切换收藏，名字还没改
-- `.card-got-toggle`：星星按钮 class，名字还没改
+- `toggleFavoriteCard(card)`：切换收藏
+- `.card-favorite-toggle`：星星按钮 class
 - `.category-tag.has-favorites`：收藏按钮变黄
 
 ### Get it
@@ -191,6 +195,7 @@ flashcardQueue = cards.filter(c => c.isRead && !c.is_integrated);
 
 ```bash
 node --check .\script.js
+node --check .\server.js
 ```
 
 通过。
@@ -204,16 +209,15 @@ Invoke-WebRequest -Uri 'http://localhost:8080/?v=fav-read-check' -UseBasicParsin
 ## 下一位 AI 注意事项
 
 1. 不要默认提交或推送，除非用户明确说提交。
-2. 现在 `script.js`、`style.css` 有未提交改动。
+2. 本轮做了黑客松交付型整理：新增 `.env.example`/`.gitignore`，重写 README，验证脚本移动到 `tools/validation/`，清理 `artifacts/` 生成物。
 3. “星星”和 “Get it” 已拆开：
    - 星星 = 收藏
    - Get it = 已读
    - 复习 = 从已读抽卡
-4. `toggleGotCard` 和 `.card-got-toggle` 名字不准确，但功能已变成收藏。可以后续重命名，但要小心别改坏事件。
+4. 收藏相关旧命名已改为 `toggleFavoriteCard` 和 `.card-favorite-toggle`。
 5. 左滑删除交互较脆弱，改之前先用手机/浏览器实际试。
 6. 如果页面没变化，用新的 query 参数强刷，例如：
 
 ```text
 http://localhost:8080/?v=你的版本名
 ```
-

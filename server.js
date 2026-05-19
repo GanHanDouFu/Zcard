@@ -3,8 +3,26 @@ const https = require('https');
 const fs = require('fs');
 const path = require('path');
 
+function loadLocalEnv() {
+    const envPath = path.join(__dirname, '.env');
+    if (!fs.existsSync(envPath)) return;
+
+    const lines = fs.readFileSync(envPath, 'utf8').split(/\r?\n/);
+    for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) continue;
+        const match = trimmed.match(/^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
+        if (!match) continue;
+        const [, key, rawValue] = match;
+        if (process.env[key]) continue;
+        process.env[key] = rawValue.replace(/^['"]|['"]$/g, '');
+    }
+}
+
+loadLocalEnv();
+
 const PORT = Number(process.env.PORT || 8080);
-const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || 'sk-4591f6e3f254426abe448bfc21e6d86d'; // Demo 直接写入
+const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || '';
 const ROOT = __dirname;
 
 // --- Live Reload (SSE) ---
@@ -81,6 +99,12 @@ function handleSSE(req, res) {
 async function handleDeepSeek(req, res) {
     if (req.method !== 'POST') {
         return sendJson(res, 405, { error: 'Method Not Allowed' });
+    }
+
+    if (!DEEPSEEK_API_KEY) {
+        return sendJson(res, 500, {
+            error: '缺少 DEEPSEEK_API_KEY。请复制 .env.example 为 .env 后填写密钥，或在页面设置里临时输入 API Key。'
+        });
     }
 
     try {
