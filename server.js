@@ -23,7 +23,27 @@ loadLocalEnv();
 
 const PORT = Number(process.env.PORT || 8080);
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || '';
+const VIDEO_TEXT_API_URL = process.env.VIDEO_TEXT_API_URL || '';
+const VIDEO_TEXT_API_KEY = process.env.VIDEO_TEXT_API_KEY || '';
+const VIDEO_TEXT_API_METHOD = (process.env.VIDEO_TEXT_API_METHOD || 'POST').toUpperCase();
+const VIDEO_TEXT_API_AUTH_HEADER = process.env.VIDEO_TEXT_API_AUTH_HEADER || 'Authorization';
+const VIDEO_TEXT_API_AUTH_PREFIX = process.env.VIDEO_TEXT_API_AUTH_PREFIX || 'Bearer ';
+const VIDEO_TEXT_API_URL_FIELD = process.env.VIDEO_TEXT_API_URL_FIELD || 'url';
+const VIDEO_TEXT_API_QUERY_FIELD = process.env.VIDEO_TEXT_API_QUERY_FIELD || VIDEO_TEXT_API_URL_FIELD;
+const VIDEO_TEXT_API_EXTRA_BODY = process.env.VIDEO_TEXT_API_EXTRA_BODY || '';
+const VIDEO_TEXT_API_TIMEOUT_MS = Number(process.env.VIDEO_TEXT_API_TIMEOUT_MS || 120000);
+const VIDEO_TEXT_API_TEXT_PATHS = (process.env.VIDEO_TEXT_API_TEXT_PATHS || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+const VIDEO_TEXT_API_TITLE_PATHS = (process.env.VIDEO_TEXT_API_TITLE_PATHS || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
 const ROOT = __dirname;
+const MIN_VIDEO_CONTENT_CHARS = 80;
+const MIN_VIDEO_CONTENT_CJK_CHARS = 35;
+const extractCache = new Map();
 
 // --- Live Reload (SSE) ---
 const sseClients = new Set();
@@ -66,6 +86,265 @@ const MIME_TYPES = {
 function sendJson(res, statusCode, payload) {
     res.writeHead(statusCode, { 'Content-Type': 'application/json; charset=utf-8' });
     res.end(JSON.stringify(payload));
+}
+
+function countCjkChars(text) {
+    const matches = String(text || '').match(/[\u4e00-\u9fff]/g);
+    return matches ? matches.length : 0;
+}
+
+function hasEnoughVideoContent(text) {
+    const content = String(text || '').trim();
+    if (!content) return false;
+    return content.length >= MIN_VIDEO_CONTENT_CHARS || countCjkChars(content) >= MIN_VIDEO_CONTENT_CJK_CHARS;
+}
+
+function extractLinks(text) {
+    return String(text || '').match(/https?:\/\/[^\s]+/g) || [];
+}
+
+function cleanSharedText(text) {
+    let cleaned = String(text || '');
+    try {
+        cleaned = decodeURIComponent(cleaned);
+    } catch {
+        // Shared links sometimes contain partial percent-encoding. Keep original text.
+    }
+
+    return cleaned
+        .replace(/https?:\/\/[^\s]+/g, '')
+        .replace(/\{[^{}]*(schema_type|share_extra_params|social_share_user_id)[^{}]*\}/gi, '')
+        .replace(/["{}[\]]/g, ' ')
+        .replace(/\b(share_extra_params|schema_type|social_share_user_id|sec_uid|share_app_id)\b/gi, ' ')
+        .replace(/[A-Za-z0-9_%=-]{18,}/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+function getByPath(value, pathExpression) {
+    return pathExpression.split('.').reduce((current, key) => {
+        if (current == null) return undefined;
+        if (Array.isArray(current) && /^\d+$/.test(key)) return current[Number(key)];
+        return current[key];
+    }, value);
+}
+
+function stringifyCandidate(item) {
+    if (!item) return '';
+    if (Array.isArray(item)) {
+        return item.map(stringifyCandidate).filter(Boolean).join('\n');
+    }
+    if (typeof item === 'string') return item;
+    if (typeof item === 'object') {
+        return item.text || item.content || item.subtitle || item.transcript || JSON.stringify(item);
+    }
+    return String(item);
+}
+
+function normalizeVideoTextPayload(payload) {
+    const defaultTextCandidates = [
+        payload?.transcript,
+        payload?.subtitle,
+        payload?.subtitles,
+        payload?.text,
+        payload?.content,
+        payload?.description,
+        payload?.data?.transcript,
+        payload?.data?.subtitle,
+        payload?.data?.subtitles,
+        payload?.data?.text,
+        payload?.data?.content,
+        payload?.data?.description,
+        payload?.result?.transcript,
+        payload?.result?.subtitle,
+        payload?.result?.subtitles,
+        payload?.result?.text,
+        payload?.result?.content,
+        payload?.result?.description
+    ];
+
+    const configuredTextCandidates = VIDEO_TEXT_API_TEXT_PATHS.map((pathName) => getByPath(payload, pathName));
+    const transcript = [...configuredTextCandidates, ...defaultTextCandidates]
+        .filter(Boolean)
+        .map(stringifyCandidate)
+        .filter(Boolean)
+        .join('\n')
+        .trim();
+
+    const configuredTitle = VIDEO_TEXT_API_TITLE_PATHS
+        .map((pathName) => getByPath(payload, pathName))
+        .find(Boolean);
+    const title = configuredTitle || payload?.title || payload?.data?.title || payload?.result?.title || '';
+    return { title: String(title || '').trim(), transcript };
+}
+
+function buildVideoTextRequestBody(videoLink) {
+    let extraBody = {};
+    if (VIDEO_TEXT_API_EXTRA_BODY) {
+        try {
+            extraBody = JSON.parse(VIDEO_TEXT_API_EXTRA_BODY);
+        } catch {
+            console.warn('[video-text] VIDEO_TEXT_API_EXTRA_BODY 不是有效 JSON，已忽略');
+        }
+    }
+    return {
+        ...extraBody,
+        [VIDEO_TEXT_API_URL_FIELD]: videoLink
+    };
+}
+
+function buildVideoTextQuery(videoLink) {
+    let extraQuery = {};
+    if (VIDEO_TEXT_API_EXTRA_BODY) {
+        try {
+            extraQuery = JSON.parse(VIDEO_TEXT_API_EXTRA_BODY);
+        } catch {
+            console.warn('[video-text] VIDEO_TEXT_API_EXTRA_BODY 不是有效 JSON，已忽略');
+        }
+    }
+    return {
+        ...extraQuery,
+        [VIDEO_TEXT_API_QUERY_FIELD]: videoLink
+    };
+}
+
+function buildVideoTextHeaders() {
+    if (!VIDEO_TEXT_API_KEY) return {};
+    return {
+        [VIDEO_TEXT_API_AUTH_HEADER]: `${VIDEO_TEXT_API_AUTH_PREFIX}${VIDEO_TEXT_API_KEY}`
+    };
+}
+
+function postJson(url, payload, headers = {}, timeoutMs = 30000) {
+    return new Promise((resolve, reject) => {
+        const target = new URL(url);
+        const body = JSON.stringify(payload);
+        const lib = target.protocol === 'http:' ? http : https;
+        const req = lib.request({
+            hostname: target.hostname,
+            port: target.port || (target.protocol === 'http:' ? 80 : 443),
+            path: `${target.pathname}${target.search}`,
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                ...headers,
+                'Content-Length': Buffer.byteLength(body)
+            }
+        }, (upstreamRes) => {
+            let raw = '';
+            upstreamRes.on('data', (chunk) => { raw += chunk; });
+            upstreamRes.on('end', () => {
+                let data = {};
+                try {
+                    data = JSON.parse(raw || '{}');
+                } catch {
+                    data = { raw };
+                }
+                resolve({ statusCode: upstreamRes.statusCode, data });
+            });
+        });
+
+        req.on('error', reject);
+        req.setTimeout(timeoutMs, () => {
+            req.destroy();
+            reject(new Error(`请求超时 (${timeoutMs}ms)`));
+        });
+        req.write(body);
+        req.end();
+    });
+}
+
+function getJson(url, query = {}, headers = {}, timeoutMs = 30000, redirectCount = 0) {
+    return new Promise((resolve, reject) => {
+        const target = new URL(url);
+        if (redirectCount === 0) {
+            Object.entries(query).forEach(([key, value]) => {
+                if (value !== undefined && value !== null && value !== '') {
+                    target.searchParams.set(key, String(value));
+                }
+            });
+        }
+
+        const lib = target.protocol === 'http:' ? http : https;
+        const req = lib.request({
+            hostname: target.hostname,
+            port: target.port || (target.protocol === 'http:' ? 80 : 443),
+            path: `${target.pathname}${target.search}`,
+            method: 'GET',
+            headers
+        }, (upstreamRes) => {
+            if ([301, 302, 303, 307, 308].includes(upstreamRes.statusCode) && upstreamRes.headers.location && redirectCount < 3) {
+                const nextUrl = new URL(upstreamRes.headers.location, target.href).href;
+                upstreamRes.resume();
+                getJson(nextUrl, {}, headers, timeoutMs, redirectCount + 1).then(resolve, reject);
+                return;
+            }
+
+            let raw = '';
+            upstreamRes.on('data', (chunk) => { raw += chunk; });
+            upstreamRes.on('end', () => {
+                let data = {};
+                try {
+                    data = JSON.parse(raw || '{}');
+                } catch {
+                    data = { raw };
+                }
+                resolve({ statusCode: upstreamRes.statusCode, data });
+            });
+        });
+
+        req.on('error', reject);
+        req.setTimeout(timeoutMs, () => {
+            req.destroy();
+            reject(new Error(`请求超时 (${timeoutMs}ms)`));
+        });
+        req.end();
+    });
+}
+
+function buildCardPrompt(sourceText, videoLink = '') {
+    return `你是一个视频知识卡片整理助手。请只基于用户提供的视频字幕/转录文本生成“信息量充足、之后能复用”的知识卡片，不要根据标题、链接或缺失信息进行推测。严格按 JSON 返回，不要返回任何其他文字，不要使用 markdown。
+
+返回格式：
+{"title":"标题（8到14字）","core_point":"主要观点（70到120字，说明视频核心论点和价值）","key_points":[{"heading":"小标题1","content":"90到160字详细说明1"},{"heading":"小标题2","content":"90到160字详细说明2"},{"heading":"小标题3","content":"90到160字详细说明3"},{"heading":"小标题4","content":"90到160字详细说明4"}],"quote":"","action":"","category":"默认","video_link":"${videoLink}"}
+
+字段要求：
+1. 所有字段必须使用中文。
+2. core_point 不能空泛，必须说明“视频讲了什么 + 为什么值得保存”，长度 70-120 字。
+3. key_points 必须是 4-6 个对象，每个对象包含 heading 和 content；除非原文信息确实不足，否则不要少于 4 个。
+4. heading 控制在 4-10 个字，像“问题背景”“关键方法”“注意事项”“适用场景”“创作看点”“可复用点”这种小标题；请根据视频类型动态命名。
+5. content 每条 90-160 字，必须包含具体对象、事件、方法、原因、结果、例子或可复用信息，不能只写一句短标题。
+6. 每条 content 尽量回答至少两个问题：发生了什么/讲了什么、为什么重要、之后怎么理解或复用。
+7. 如果是知识干货，优先提炼问题背景、方法步骤、关键原理、注意事项、适用场景、可复用结论；如果是剧情/案例，优先提炼故事设定、关键冲突、人物行动、结果结论、创作技法、可借鉴点。
+8. 不要为了简洁牺牲信息量；目标是让用户以后不打开原视频，也能通过卡片快速回忆主要内容。
+9. quote 固定返回空字符串。
+10. action 固定返回空字符串。
+11. category 固定返回“默认”。
+
+视频文字内容：
+${sourceText}`;
+}
+
+async function callDeepSeekJson(prompt) {
+    if (!DEEPSEEK_API_KEY) {
+        throw new Error('缺少 DEEPSEEK_API_KEY');
+    }
+
+    const result = await postJson('https://api.deepseek.com/chat/completions', {
+        model: 'deepseek-chat',
+        messages: [{ role: 'user', content: prompt }],
+        response_format: { type: 'json_object' }
+    }, {
+        Authorization: `Bearer ${DEEPSEEK_API_KEY}`
+    }, 30000);
+
+    if (result.statusCode !== 200) {
+        throw new Error(result.data?.error?.message || `DeepSeek API 返回 ${result.statusCode}`);
+    }
+
+    const content = result.data?.choices?.[0]?.message?.content || '';
+    if (!content) throw new Error('AI 返回内容为空');
+    return JSON.parse(content.trim().replace(/^```(?:json)?\s*/i, '').replace(/```$/i, '').trim());
 }
 
 function readBody(req) {
@@ -221,6 +500,132 @@ async function handleDeepSeek(req, res) {
     }
 }
 
+async function fetchVideoText(videoLink) {
+    if (!VIDEO_TEXT_API_URL) {
+        return {
+            status: 'needs_text',
+            reason: '未配置 VIDEO_TEXT_API_URL，暂时无法只通过链接提取视频文字。'
+        };
+    }
+
+    const result = VIDEO_TEXT_API_METHOD === 'GET'
+        ? await getJson(VIDEO_TEXT_API_URL, buildVideoTextQuery(videoLink), buildVideoTextHeaders(), VIDEO_TEXT_API_TIMEOUT_MS)
+        : await postJson(VIDEO_TEXT_API_URL, buildVideoTextRequestBody(videoLink), buildVideoTextHeaders(), VIDEO_TEXT_API_TIMEOUT_MS);
+    if (result.statusCode < 200 || result.statusCode >= 300) {
+        return {
+            status: 'needs_text',
+            reason: result.data?.error || result.data?.message || `视频文字提取 API 返回 ${result.statusCode}`
+        };
+    }
+
+    const normalized = normalizeVideoTextPayload(result.data);
+    if (!hasEnoughVideoContent(normalized.transcript)) {
+        return {
+            status: 'needs_text',
+            reason: '视频文字提取 API 未返回足够的字幕或转录文本。',
+            title: normalized.title,
+            transcriptLength: normalized.transcript.length
+        };
+    }
+
+    return {
+        status: 'ok',
+        title: normalized.title,
+        transcript: normalized.transcript
+    };
+}
+
+async function handleExtractCard(req, res) {
+    if (req.method !== 'POST') {
+        return sendJson(res, 405, { error: 'Method Not Allowed' });
+    }
+
+    try {
+        const body = JSON.parse(await readBody(req));
+        const input = String(body.input || body.text || body.url || '').trim();
+        if (!input) {
+            return sendJson(res, 400, { error: '缺少 input' });
+        }
+
+        const links = extractLinks(input);
+        const videoLink = links[0] || '';
+        const cleanedText = cleanSharedText(input);
+        const cacheKey = videoLink || cleanedText;
+        if (cacheKey && extractCache.has(cacheKey)) {
+            return sendJson(res, 200, { ...extractCache.get(cacheKey), cached: true });
+        }
+
+        let sourceText = cleanedText;
+        let sourceType = 'pasted_text';
+        let extractMeta = {};
+
+        if (videoLink && VIDEO_TEXT_API_URL) {
+            const videoText = await fetchVideoText(videoLink);
+            if (videoText.status !== 'ok') {
+                return sendJson(res, 200, {
+                    status: 'needs_text',
+                    video_link: videoLink,
+                    reason: videoText.reason || '暂时无法提取视频完整文字。',
+                    title: videoText.title || ''
+                });
+            }
+            sourceText = videoText.transcript;
+            sourceType = 'video_api';
+            extractMeta = { title: videoText.title || '' };
+        } else if (!hasEnoughVideoContent(sourceText) && videoLink) {
+            return sendJson(res, 200, {
+                status: 'needs_text',
+                video_link: videoLink,
+                reason: '未配置 VIDEO_TEXT_API_URL，暂时无法只通过链接提取视频文字。'
+            });
+        }
+
+        if (!hasEnoughVideoContent(sourceText)) {
+            return sendJson(res, 200, {
+                status: 'needs_text',
+                video_link: videoLink,
+                reason: '输入内容太短，请粘贴视频字幕、转录文本或较完整的视频文案。'
+            });
+        }
+
+        let card;
+        try {
+            card = await callDeepSeekJson(buildCardPrompt(sourceText, videoLink));
+        } catch (error) {
+            if (error.message === '缺少 DEEPSEEK_API_KEY') {
+                return sendJson(res, 200, {
+                    status: 'needs_ai_key',
+                    source_type: sourceType,
+                    source_text_length: sourceText.length,
+                    video_link: videoLink,
+                    reason: '已提取到视频文字，但缺少 DEEPSEEK_API_KEY，暂时无法生成 Zcard 卡片。'
+                });
+            }
+            throw error;
+        }
+
+        const response = {
+            status: 'ok',
+            source_type: sourceType,
+            source_text_length: sourceText.length,
+            video_link: card.video_link || videoLink,
+            card: {
+                ...card,
+                video_link: card.video_link || videoLink,
+                category: card.category || '默认',
+                source_text: sourceText,
+                source_meta: extractMeta
+            }
+        };
+
+        if (cacheKey) extractCache.set(cacheKey, response);
+        return sendJson(res, 200, response);
+    } catch (error) {
+        console.error('[extract-card] 错误:', error.message);
+        return sendJson(res, 500, { error: error.message || '生成卡片失败' });
+    }
+}
+
 // 注入 live-reload 客户端脚本到 HTML（仅本地开发）
 const IS_DEV = process.env.NODE_ENV !== 'production';
 const LIVE_RELOAD_SNIPPET = IS_DEV ? `
@@ -267,6 +672,11 @@ function serveStatic(req, res) {
 }
 
 const server = http.createServer((req, res) => {
+    if (req.url.startsWith('/api/extract-card')) {
+        handleExtractCard(req, res);
+        return;
+    }
+
     if (req.url.startsWith('/api/deepseek')) {
         handleDeepSeek(req, res);
         return;

@@ -6,7 +6,11 @@
 let cards = [];
 let currentCategory = '全部';
 let currentSearch = '';
-let currentView = 'home'; // home | unread | read | favorites
+let currentView = 'home'; // home | unread | read | favorites | graph
+let activeGraphCategory = '';
+let activeGraphFilter = 'all';
+const DEFAULT_CATEGORY = '默认';
+const MERGED_CATEGORY = '整合';
 let pendingIntegrateResult = null; // 整合预览暂存
 let swipeReviewQueue = [];
 let swipeReviewIndex = 0;
@@ -20,6 +24,9 @@ let currentReviewCardId = null;
 let isEditingCard = false;
 let reviewRevealTimer = null;
 let activeEditField = 'core_point';
+let precisionMarkState = null;
+let precisionMarkDrag = null;
+let pendingEditMarks = {};
 let reviewCardFlipped = false;
 let activeReviewIds = [];
 let swipeReviewResults = {};
@@ -58,7 +65,10 @@ try {
 // API 配置
 const API_URL = 'https://api.deepseek.com/chat/completions';
 const PROXY_API_URL = '/api/deepseek';
+const EXTRACT_CARD_API_URL = '/api/extract-card';
 let API_KEY = sessionStorage.getItem('deepseek_api_key') || '';
+const MIN_VIDEO_CONTENT_CHARS = 80;
+const MIN_VIDEO_CONTENT_CJK_CHARS = 35;
 const TEXT_STYLE_DEFAULTS = {
     title: { fontSize: '16px', color: '#1f1f1d' },
     core_point: { fontSize: '16px', color: '#1f1f1d' },
@@ -85,8 +95,341 @@ function escapeHTML(value) {
     }[char]));
 }
 
+function escapeRegExp(value) {
+    return String(value ?? '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function renderInlineMarks(value) {
+    return escapeHTML(value)
+        .replace(/\[\[mark(?::?([a-z]+))?\]\]([\s\S]*?)\[\[\/mark\]\]/g, (match, color, text) => `<mark class="text-mark mark-${escapeHTML(color || 'red')}">${text}</mark>`);
+}
+
+function normalizeMarkRanges(ranges) {
+    return Array.isArray(ranges)
+        ? ranges
+            .map((range) => ({
+                start: Math.max(0, Number(range.start) || 0),
+                end: Math.max(0, Number(range.end) || 0),
+                color: ['red', 'yellow', 'green', 'blue'].includes(range.color) ? range.color : 'red'
+            }))
+            .filter((range) => range.end > range.start)
+        : [];
+}
+
+function renderMarkedText(value, ranges = []) {
+    const text = stripInlineMarks(value);
+    const marks = normalizeMarkRanges(ranges).sort((a, b) => a.start - b.start);
+    let cursor = 0;
+    let html = '';
+    marks.forEach((range) => {
+        const start = Math.max(cursor, Math.min(range.start, text.length));
+        const end = Math.max(start, Math.min(range.end, text.length));
+        if (start > cursor) html += escapeHTML(text.slice(cursor, start));
+        if (end > start) {
+            html += `<mark class="text-mark mark-${escapeHTML(range.color)}">${escapeHTML(text.slice(start, end))}</mark>`;
+        }
+        cursor = end;
+    });
+    html += escapeHTML(text.slice(cursor));
+    return html;
+}
+
+function renderMarkedField(card, field, fallback = '') {
+    return renderMarkedText(card?.[field] || fallback, card?.marks?.[field] || []);
+}
+
+function renderEditableHtml(value, ranges = []) {
+    return renderMarkedText(value, ranges).replace(/\n/g, '<br>');
+}
+
+function getEditablePlainText(element) {
+    if (!element) return '';
+    const walk = (node) => {
+        if (node.nodeType === Node.TEXT_NODE) return node.nodeValue || '';
+        if (node.nodeName === 'BR') return '\n';
+        let text = '';
+        node.childNodes.forEach((child) => {
+            text += walk(child);
+        });
+        if (node.nodeType === Node.ELEMENT_NODE && ['DIV', 'P'].includes(node.nodeName) && text && !text.endsWith('\n')) {
+            text += '\n';
+        }
+        return text;
+    };
+    return walk(element).replace(/\n$/, '');
+}
+
+function getEditableMarkRanges(element) {
+    if (!element) return [];
+    const ranges = [];
+    let offset = 0;
+    const walk = (node, activeColor = '') => {
+        if (node.nodeType === Node.TEXT_NODE) {
+            const text = node.nodeValue || '';
+            if (activeColor && text.length) {
+                ranges.push({ start: offset, end: offset + text.length, color: activeColor });
+            }
+            offset += text.length;
+            return;
+        }
+        if (node.nodeName === 'BR') {
+            offset += 1;
+            return;
+        }
+        const elementNode = node.nodeType === Node.ELEMENT_NODE ? node : null;
+        const colorClass = elementNode ? [...elementNode.classList].find((name) => name.startsWith('mark-')) : '';
+        const nextColor = colorClass ? colorClass.replace('mark-', '') : activeColor;
+        node.childNodes.forEach((child) => walk(child, nextColor));
+        if (elementNode && ['DIV', 'P'].includes(elementNode.nodeName)) {
+            offset += 1;
+        }
+    };
+    element.childNodes.forEach((child) => walk(child));
+    return normalizeMarkRanges(ranges);
+}
+
+function getSelectionOffsetsWithin(element) {
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) return null;
+    const range = selection.getRangeAt(0);
+    if (!element.contains(range.startContainer) || !element.contains(range.endContainer)) return null;
+    const beforeStart = document.createRange();
+    beforeStart.selectNodeContents(element);
+    beforeStart.setEnd(range.startContainer, range.startOffset);
+    const beforeEnd = document.createRange();
+    beforeEnd.selectNodeContents(element);
+    beforeEnd.setEnd(range.endContainer, range.endOffset);
+    return {
+        start: beforeStart.toString().length,
+        end: beforeEnd.toString().length,
+        collapsed: range.collapsed
+    };
+}
+
+function getSelectionRectWithin(element) {
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) return null;
+    const range = selection.getRangeAt(0);
+    if (!element.contains(range.startContainer) || !element.contains(range.endContainer)) return null;
+    const rects = Array.from(range.getClientRects()).filter((rect) => rect.width || rect.height);
+    return rects[0] || range.getBoundingClientRect();
+}
+
+function rerenderEditableField(element, keepStart = null, keepEnd = null) {
+    if (!element) return;
+    const field = element.dataset.styleField;
+    element.innerHTML = renderEditableHtml(getEditablePlainText(element), pendingEditMarks[field] || []);
+    if (typeof keepStart === 'number' && typeof keepEnd === 'number') {
+        setEditableSelection(element, keepStart, keepEnd);
+    }
+}
+
+function setEditableSelection(element, start, end) {
+    const selection = window.getSelection();
+    if (!selection) return;
+    let offset = 0;
+    let startPoint = null;
+    let endPoint = null;
+    const walk = (node) => {
+        if (startPoint && endPoint) return;
+        if (node.nodeType === Node.TEXT_NODE) {
+            const length = node.nodeValue.length;
+            if (!startPoint && start <= offset + length) {
+                startPoint = { node, offset: Math.max(0, start - offset) };
+            }
+            if (!endPoint && end <= offset + length) {
+                endPoint = { node, offset: Math.max(0, end - offset) };
+            }
+            offset += length;
+            return;
+        }
+        if (node.nodeName === 'BR') {
+            offset += 1;
+            return;
+        }
+        node.childNodes.forEach(walk);
+    };
+    walk(element);
+    if (!startPoint || !endPoint) return;
+    const range = document.createRange();
+    range.setStart(startPoint.node, startPoint.offset);
+    range.setEnd(endPoint.node, endPoint.offset);
+    selection.removeAllRanges();
+    selection.addRange(range);
+}
+
+function renderMultilineText(value) {
+    return renderInlineMarks(value).replace(/\n/g, '<br>');
+}
+
+function stripInlineMarks(value) {
+    return String(value || '').replace(/\[\[mark(?::?[a-z]+)?\]\]|\[\[\/mark\]\]/g, '');
+}
+
 function safeList(items) {
     return Array.isArray(items) ? items : [];
+}
+
+function isGenericPointHeading(value) {
+    return /^要点\s*\d+$/i.test(String(value || '').trim());
+}
+
+function cleanPointHeading(value, index = 0) {
+    let heading = String(value || '').trim();
+    heading = heading.replace(/^(?:[一二三四五六七八九十]+[、.．]|\d+[、.．]|要点\s*\d+[：:、.．]?)\s*/, '').trim();
+    heading = heading.split(/[：:。；;，,]/)[0].trim();
+    heading = heading
+        .replace(/的区分$/, '')
+        .replace(/的维护$/, '')
+        .replace(/方法$/, '')
+        .replace(/价值$/, '')
+        .trim();
+    return heading.slice(0, 12) || `要点${index + 1}`;
+}
+
+function derivePointParts(value, index = 0) {
+    const text = String(value || '').trim();
+    const stripped = text.replace(/^(?:[一二三四五六七八九十]+[、.．]|\d+[、.．]|要点\s*\d+[：:、.．]?)\s*/, '').trim();
+    const colon = stripped.match(/^([^：:。；;]{2,18})[：:]\s*(.+)$/);
+    if (colon) {
+        return {
+            heading: cleanPointHeading(colon[1], index),
+            content: colon[2].trim()
+        };
+    }
+    const sentence = stripped.split(/[。；;，,]/).find(Boolean) || '';
+    return {
+        heading: cleanPointHeading(sentence, index),
+        content: stripped
+    };
+}
+
+function pointHeading(point, index) {
+    if (point && typeof point === 'object') {
+        const heading = stripInlineMarks(point.heading || point.title || '').trim();
+        const contentParts = derivePointParts(point.content || point.detail || point.description || point.text || '', index);
+        if (heading && !isGenericPointHeading(heading)) {
+            return cleanPointHeading(heading, index) || contentParts.heading;
+        }
+        return contentParts.heading;
+    }
+    return derivePointParts(point, index).heading;
+}
+
+function pointContent(point, index = 0) {
+    if (point && typeof point === 'object') {
+        const content = String(point.content || point.detail || point.description || point.text || '').trim();
+        let cleanContent = derivePointParts(content, index).content;
+        const heading = String(point.heading || point.title || '').trim();
+        const displayHeading = cleanPointHeading(heading, index);
+        [heading, displayHeading].filter(Boolean).forEach((candidate) => {
+            if (cleanContent.startsWith(`${candidate}：`) || cleanContent.startsWith(`${candidate}:`)) {
+                cleanContent = cleanContent.slice(candidate.length + 1).trim();
+            }
+        });
+        const colonParts = cleanContent.match(/^([^：:。；;]{2,18})[：:]\s*(.+)$/);
+        if (colonParts && cleanPointHeading(colonParts[1], index) === displayHeading) {
+            cleanContent = colonParts[2].trim();
+        }
+        return cleanContent;
+    }
+    return derivePointParts(point, index).content;
+}
+
+function pointContentWithMarks(point, index = 0) {
+    if (point && typeof point === 'object') {
+        return pointContent(point, index);
+    }
+    const text = String(point || '').trim();
+    const stripped = text.replace(/^(?:[一二三四五六七八九十]+[、.．]|\d+[、.．]|要点\s*\d+[：:、.．]?)\s*/, '').trim();
+    const colon = stripped.match(/^([^：:。；;]{2,18})[：:]\s*(.+)$/);
+    return colon ? colon[2].trim() : stripped;
+}
+
+function pointPlainText(point, index = 0) {
+    const heading = pointHeading(point, index);
+    const content = pointContent(point, index);
+    return heading && content && !content.startsWith(heading)
+        ? `${heading}：${content}`
+        : (content || heading);
+}
+
+function normalizeKeyPoint(point, index = 0) {
+    return {
+        heading: pointHeading(point, index),
+        content: pointContent(point, index)
+    };
+}
+
+function isLocalAppUrl(value) {
+    try {
+        const url = new URL(String(value || '').trim(), window.location.href);
+        return ['localhost', '127.0.0.1', '0.0.0.0'].includes(url.hostname);
+    } catch {
+        return false;
+    }
+}
+
+function sourceVideoUrl(value) {
+    const url = safeUrl(value);
+    return url && !isLocalAppUrl(url) ? url : '';
+}
+
+function renderSourceLink(card) {
+    const links = [
+        sourceVideoUrl(card.video_link),
+        ...safeList(card.source_links).map(sourceVideoUrl)
+    ].filter(Boolean);
+    const uniqueLinks = [...new Set(links)];
+    if (!uniqueLinks.length) return '';
+    return `
+        <div class="detail-section source-link-section">
+            <h4>${uniqueLinks.length > 1 ? '原视频链接' : '原视频链接'}</h4>
+            ${uniqueLinks.map((sourceUrl, index) => `
+                <a href="${escapeHTML(sourceUrl)}" target="_blank" rel="noopener">${uniqueLinks.length > 1 ? `来源${index + 1}：` : ''}${escapeHTML(sourceUrl)}</a>
+            `).join('')}
+        </div>
+    `;
+}
+
+function getAdjustedMarksForSegment(ranges, segmentStart, segmentText) {
+    const segmentEnd = segmentStart + segmentText.length;
+    return normalizeMarkRanges(ranges)
+        .map((range) => ({
+            start: Math.max(range.start, segmentStart) - segmentStart,
+            end: Math.min(range.end, segmentEnd) - segmentStart,
+            color: range.color
+        }))
+        .filter((range) => range.end > range.start);
+}
+
+function renderDetailPoints(points, fieldMarks = []) {
+    const list = safeList(points);
+    if (!list.length) return '';
+    let offset = 0;
+    return `
+        <div class="detail-point-list">
+            ${list.map((point, index) => {
+                const lineText = pointPlainText(point, index);
+                const contentText = pointContentWithMarks(point, index);
+                const contentOffset = Math.max(0, lineText.indexOf(contentText));
+                const contentMarks = getAdjustedMarksForSegment(fieldMarks, offset + contentOffset, contentText);
+                offset += lineText.length + 1;
+                return `
+                    <section class="detail-point-item ${index === 0 ? 'is-open' : ''}">
+                        <button class="detail-point-heading" type="button" data-point-toggle aria-expanded="${index === 0 ? 'true' : 'false'}">
+                            <span>${['一', '二', '三', '四', '五'][index] || index + 1}</span>
+                            <strong>${escapeHTML(pointHeading(point, index))}</strong>
+                            <i data-lucide="chevron-down"></i>
+                        </button>
+                        <div class="detail-point-content">
+                            <p>${renderMarkedText(contentText, contentMarks)}</p>
+                        </div>
+                    </section>
+                `;
+            }).join('')}
+        </div>
+    `;
 }
 
 function safeUrl(value) {
@@ -102,6 +445,12 @@ function normalizeCard(card) {
     if (!card.customStyles || typeof card.customStyles !== 'object') {
         card.customStyles = {};
     }
+    if (!card.marks || typeof card.marks !== 'object') {
+        card.marks = {};
+    }
+    ['title', 'core_point', 'key_points', 'note'].forEach((field) => {
+        card.marks[field] = normalizeMarkRanges(card.marks[field]);
+    });
     Object.keys(TEXT_STYLE_DEFAULTS).forEach((key) => {
         card.customStyles[key] = {
             ...TEXT_STYLE_DEFAULTS[key],
@@ -118,6 +467,9 @@ function normalizeCard(card) {
     card.is_demo = card.isDemo;
     card.isIntegrated = typeof card.isIntegrated === 'boolean' ? card.isIntegrated : !!card.is_integrated;
     card.is_integrated = card.isIntegrated;
+    if (card.isIntegrated || card.is_integrated) {
+        card.category = MERGED_CATEGORY;
+    }
     if (!Array.isArray(card.sourceCards)) {
         card.sourceCards = Array.isArray(card.source_cards) ? [...card.source_cards] : [];
     }
@@ -131,6 +483,7 @@ function normalizeCard(card) {
     if (!card.summary && card.core_point) {
         card.summary = card.core_point;
     }
+    card.category = normalizeCategory(card.category);
     return card;
 }
 
@@ -195,23 +548,10 @@ function styleAttr(card, field) {
 
 function normalizeCategory(value) {
     const raw = String(value || '').trim();
-    const categories = ['生活', '职场', '学习', '娱乐', '财经', '健康', '科技'];
-    if (categories.includes(raw)) return raw;
-    const lower = raw.toLowerCase();
-    const map = {
-        life: '生活',
-        work: '职场',
-        career: '职场',
-        study: '学习',
-        education: '学习',
-        learning: '学习',
-        entertainment: '娱乐',
-        finance: '财经',
-        health: '健康',
-        technology: '科技',
-        tech: '科技'
-    };
-    return map[lower] || '学习';
+    if (!raw) return DEFAULT_CATEGORY;
+    if (raw === '全部' || raw === '未分类') return DEFAULT_CATEGORY;
+    if (raw === '合并') return MERGED_CATEGORY;
+    return raw.slice(0, 16);
 }
 
 function loadStoredJson(key, fallback) {
@@ -248,9 +588,8 @@ function shuffleArray(list) {
 }
 
 function loadReviewSettings() {
-    const stored = loadStoredJson(REVIEW_SETTINGS_KEY, {});
     return {
-        cardCount: clamp(stored.cardCount || 3, 3, 5)
+        cardCount: 4
     };
 }
 
@@ -324,6 +663,7 @@ function init() {
     els.videoInput = document.getElementById('video-input');
     els.btnGenerate = document.getElementById('btn-generate');
     els.loadingIndicator = document.getElementById('loading-indicator');
+    els.toolbar = document.querySelector('.toolbar');
     els.cardsContainer = document.getElementById('cards-container');
     els.emptyState = document.getElementById('empty-state');
     els.categoryList = document.getElementById('category-list');
@@ -353,6 +693,8 @@ function init() {
     els.reviewStreakRing = document.getElementById('review-streak-ring');
     els.reviewStreakDays = document.getElementById('review-streak-days');
     els.reviewStreakLabel = document.getElementById('review-streak-label');
+    els.reviewStreakButton = document.getElementById('review-streak-button');
+    els.reviewMainEntryText = document.getElementById('review-main-entry-text');
     els.btnClearSearch = document.getElementById('btn-clear-search');
     els.searchModal = document.getElementById('search-modal');
     els.btnCloseSearch = document.getElementById('btn-close-search');
@@ -392,12 +734,21 @@ function init() {
     els.btnCloseSettings = document.getElementById('btn-close-settings');
     els.apiKeyInput = document.getElementById('api-key-input');
     els.btnSaveSettings = document.getElementById('btn-save-settings');
+    els.reviewStatsModal = document.getElementById('review-stats-modal');
+    els.btnCloseReviewStats = document.getElementById('btn-close-review-stats');
+    els.reviewStatsStreak = document.getElementById('review-stats-streak');
+    els.reviewStatsTotal = document.getElementById('review-stats-total');
+    els.reviewStatsPower = document.getElementById('review-stats-power');
+    els.reviewStatsStatus = document.getElementById('review-stats-status');
     els.integratePreviewModal = document.getElementById('integrate-preview-modal');
     els.btnCloseIntegratePreview = document.getElementById('btn-close-integrate-preview');
     els.integratePreviewTitle = document.getElementById('integrate-preview-title');
     els.integratePreviewBody = document.getElementById('integrate-preview-body');
     els.btnCancelIntegrate = document.getElementById('btn-cancel-integrate');
     els.btnConfirmIntegrate = document.getElementById('btn-confirm-integrate');
+    els.knowledgeGraphSection = document.getElementById('knowledge-graph-section');
+    els.knowledgeUniverse = document.getElementById('knowledge-universe');
+    els.knowledgeGraphCards = document.getElementById('knowledge-graph-cards');
     els.swipeModal = document.getElementById('swipe-review-modal');
     els.btnCloseSwipeReview = document.getElementById('btn-close-swipe-review');
     els.swipeHead = document.querySelector('.swipe-head');
@@ -417,6 +768,7 @@ function init() {
     els.quizStage = document.getElementById('quiz-stage');
     els.quizCardTitle = document.getElementById('quiz-card-title');
     els.quizProgress = document.getElementById('quiz-progress');
+    els.quizQuestion = document.getElementById('quiz-question');
     els.quizOptions = document.getElementById('quiz-options');
     els.quizFeedback = document.getElementById('quiz-feedback');
     els.quizStreakText = document.getElementById('quiz-streak-text');
@@ -434,8 +786,9 @@ function init() {
     els.srTitle = document.getElementById('sr-title');
     els.srCore = document.getElementById('sr-core');
     els.srPoints = document.getElementById('sr-points');
-    
+
     initDemoCards();  // 先初始化演示卡片
+    renderCategoryNav();
     renderCards();    // 再渲染
     refreshIcons();   // 初始化 Lucide 图标
     renderDailyReview();
@@ -456,6 +809,438 @@ function initDemoCards() {
     saveCards();
 }
 
+function getUserCategories() {
+    const categories = new Set();
+    cards.forEach((card) => {
+        normalizeCard(card);
+        const category = normalizeCategory(card.category);
+        if (category) categories.add(category);
+    });
+    const sorted = [...categories]
+        .filter((category) => category !== DEFAULT_CATEGORY && category !== MERGED_CATEGORY)
+        .sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'));
+    if (categories.has(DEFAULT_CATEGORY) || sorted.length === 0) {
+        sorted.unshift(DEFAULT_CATEGORY);
+    }
+    if (cards.some((card) => normalizeCard(card).isIntegrated || card.is_integrated)) {
+        sorted.unshift(MERGED_CATEGORY);
+    }
+    return sorted;
+}
+
+function updateCategorySearchPlaceholder() {
+    if (!els.searchInput) return;
+    els.searchInput.placeholder = `在【${currentCategory}】中搜索...`;
+}
+
+function renderCategoryNav() {
+    if (!els.categoryList) return;
+    const categories = getUserCategories();
+    const validCategories = new Set(['全部', ...categories]);
+    if (!validCategories.has(currentCategory)) {
+        currentCategory = '全部';
+    }
+
+    const buttonHtml = ['全部', ...categories].map((category) => {
+        const canDelete = category !== '全部' && category !== DEFAULT_CATEGORY && category !== MERGED_CATEGORY;
+        const count = category === '全部'
+            ? cards.length
+            : (category === MERGED_CATEGORY
+                ? cards.filter((card) => normalizeCard(card).isIntegrated || card.is_integrated).length
+                : cards.filter((card) => normalizeCategory(card.category) === category).length);
+        return `
+            <button class="category-tag ${category === currentCategory ? 'active' : ''}" data-category="${escapeHTML(category)}" type="button">
+                <span>${escapeHTML(category)}</span>
+                <span class="category-count">${count}</span>
+                ${canDelete ? `<span class="category-delete" data-delete-category="${escapeHTML(category)}" title="删除分类" aria-label="删除${escapeHTML(category)}分类">×</span>` : ''}
+            </button>
+        `;
+    }).join('');
+
+    els.categoryList.innerHTML = buttonHtml;
+    updateCategorySearchPlaceholder();
+    refreshIcons();
+}
+
+function setCurrentCategory(category) {
+    currentCategory = category === '全部' ? '全部' : normalizeCategory(category);
+    renderCategoryNav();
+    renderCards();
+}
+
+function deleteCategory(category) {
+    const normalized = normalizeCategory(category);
+    if (!normalized || normalized === DEFAULT_CATEGORY || normalized === MERGED_CATEGORY) return;
+    const count = cards.filter((card) => normalizeCategory(card.category) === normalized).length;
+    if (!confirm(`删除“${normalized}”分类吗？该分类下 ${count} 张卡片会移到“默认”。`)) return;
+    cards.forEach((card) => {
+        if (normalizeCategory(card.category) === normalized) {
+            card.category = DEFAULT_CATEGORY;
+        }
+    });
+    if (currentCategory === normalized) {
+        currentCategory = DEFAULT_CATEGORY;
+    }
+    saveCards();
+    renderCategoryNav();
+    renderCards();
+}
+
+function promptForCardCategory(card) {
+    const existing = getUserCategories().filter((category) => category !== DEFAULT_CATEGORY);
+    const preferred = currentCategory !== '全部' && currentCategory !== DEFAULT_CATEGORY
+        ? currentCategory
+        : (normalizeCategory(card.category) !== DEFAULT_CATEGORY ? normalizeCategory(card.category) : '');
+    const message = [
+        '给这张卡片输入分类名称：',
+        existing.length ? `已有分类：${existing.join('、')}` : '还没有自定义分类，输入一个新分类即可创建。',
+        '留空保存到“默认”，点取消则不加入已读。'
+    ].join('\n');
+    const value = window.prompt(message, preferred);
+    if (value === null) return null;
+    return normalizeCategory(value);
+}
+
+function getKnowledgeGraphGroups() {
+    const groups = new Map();
+    cards.forEach((rawCard) => {
+        const card = normalizeCard(rawCard);
+        const category = normalizeCategory(card.category);
+        const bucket = groups.get(category) || [];
+        bucket.push(card);
+        groups.set(category, bucket);
+    });
+
+    const orderedCategories = getUserCategories();
+    return orderedCategories
+        .map((category, index) => ({
+            category,
+            cards: (groups.get(category) || []).slice().sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))
+        }))
+        .filter((group) => group.cards.length > 0);
+}
+
+// 分类徽标映射
+const CATEGORY_MARKS = {
+    [MERGED_CATEGORY]: '整',
+    [DEFAULT_CATEGORY]: '知',
+    '学习': '学',
+    '职场': '职',
+    '科技': '科',
+    '生活': '生',
+    '财经': '财',
+    '健康': '康',
+    '娱乐': '娱'
+};
+
+// 分类颜色映射（超低饱和浅色）
+const CATEGORY_COLORS = {
+    [MERGED_CATEGORY]: '#ECE8E1',
+    [DEFAULT_CATEGORY]: '#F3F0EA',
+    '学习': '#EEE9F7',
+    '职场': '#E8EEF5',
+    '生活': '#F4E7DD',
+    '科技': '#F6ECCF',
+    '健康': '#F6E5E1',
+    '娱乐': '#EFE8F1',
+    '财经': '#E5EFE9'
+};
+
+const CATEGORY_FALLBACK_COLORS = [
+    '#EEE9F7',
+    '#E8EEF5',
+    '#E5EFE9',
+    '#F6ECCF',
+    '#F4E7DD',
+    '#F6E5E1',
+    '#EFE8F1',
+    '#E9EEE6',
+    '#F0EAE2',
+    '#E7EFF0'
+];
+
+function getCategoryMark(category) {
+    return CATEGORY_MARKS[category] || String(category || DEFAULT_CATEGORY).trim().slice(0, 1) || '知';
+}
+
+function getCategoryColor(category) {
+    if (CATEGORY_COLORS[category]) return CATEGORY_COLORS[category];
+    const seed = String(category || DEFAULT_CATEGORY)
+        .split('')
+        .reduce((sum, char) => sum + char.charCodeAt(0), 0);
+    return CATEGORY_FALLBACK_COLORS[seed % CATEGORY_FALLBACK_COLORS.length];
+}
+
+function renderCategorySketchIcon(category, index = 0) {
+    const rotations = [-4, 3, -2, 4, -3, 2, -5, 1];
+    const rotation = rotations[index % rotations.length];
+    return `
+        <span class="category-mark-card" style="--sketch-rotate:${rotation}deg">
+            <span>${escapeHTML(getCategoryMark(category))}</span>
+        </span>
+    `;
+}
+
+function getGraphSortedCards(list) {
+    return list
+        .slice()
+        .sort((a, b) => {
+            const bTime = Date.parse(b.created_at || '');
+            const aTime = Date.parse(a.created_at || '');
+            const bRank = Number.isNaN(bTime) ? 0 : bTime;
+            const aRank = Number.isNaN(aTime) ? 0 : aTime;
+            return bRank - aRank || String(b.id || '').localeCompare(String(a.id || ''));
+        });
+}
+
+function getGraphRelativeDate(dateText) {
+    const time = Date.parse(dateText || '');
+    if (Number.isNaN(time)) return '刚刚';
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const target = new Date(time);
+    target.setHours(0, 0, 0, 0);
+    const days = Math.max(0, Math.round((today - target) / 86400000));
+    if (days === 0) return '今天';
+    if (days === 1) return '昨天';
+    if (days < 7) return `${days} 天前`;
+    if (days < 14) return '1 周前';
+    return dateText;
+}
+
+function getGraphUpdatedLabel(group) {
+    const latest = getGraphSortedCards(group.cards)[0];
+    const relative = getGraphRelativeDate(latest?.created_at || '');
+    return relative === '今天' ? '今天更新' : relative;
+}
+
+function renderGraphFilterButton(filter, label) {
+    return `
+        <button type="button" class="graph-filter-pill ${activeGraphFilter === filter ? 'active' : ''}" data-graph-filter="${filter}">
+            ${escapeHTML(label)}
+        </button>
+    `;
+}
+
+function renderGraphCategorySelect(groups) {
+    const activeLabel = activeGraphCategory || '全部分类';
+    const options = [{ category: '', cards: allGraphCardsFallback(groups) }, ...groups]
+        .map((group) => `
+            <button
+                type="button"
+                class="graph-category-option ${activeGraphCategory === group.category ? 'active' : ''}"
+                data-graph-category-option="${escapeHTML(group.category)}"
+            >
+                <span>${escapeHTML(group.category || '全部分类')}</span>
+                <small>${safeList(group.cards).length} 张</small>
+            </button>
+        `)
+        .join('');
+    return `
+        <div class="graph-category-select">
+            <button type="button" class="graph-category-trigger" data-graph-category-trigger aria-expanded="false">
+                <span>${escapeHTML(activeLabel)}</span>
+                <i data-lucide="chevron-down"></i>
+            </button>
+            <div class="graph-category-menu" data-graph-category-menu>
+                ${options}
+            </div>
+        </div>
+    `;
+}
+
+function allGraphCardsFallback(groups) {
+    return groups.flatMap((group) => safeList(group.cards));
+}
+
+function renderKnowledgeGraphCard(card, mode = '') {
+    const summary = card.core_point || card.summary || safeList(card.key_points)[0] || '点击查看卡片详情';
+    return `
+        <button type="button" class="graph-card-item ${mode === 'page' ? 'graph-card-item-page' : ''}" data-card-id="${escapeHTML(card.id)}">
+            <div class="graph-card-top">
+                <span class="graph-card-badge">${escapeHTML(card.category || DEFAULT_CATEGORY)}</span>
+                <span class="graph-card-date">${escapeHTML(card.created_at || '')}</span>
+            </div>
+            <strong class="graph-card-title">${escapeHTML(card.title || '未命名卡片')}</strong>
+            <p class="graph-card-summary">${escapeHTML(summary)}</p>
+        </button>
+    `;
+}
+
+function renderKnowledgeGraph() {
+    if (!els.knowledgeGraphSection || !els.knowledgeUniverse || !els.knowledgeGraphCards) return;
+
+    const groups = getKnowledgeGraphGroups();
+    const totalCount = cards.length;
+    const allGraphCards = getGraphSortedCards(groups.flatMap((group) => group.cards));
+
+    if (!groups.length || totalCount === 0) {
+        activeGraphCategory = '';
+        activeGraphFilter = 'all';
+        els.knowledgeUniverse.style.display = 'block';
+        els.knowledgeUniverse.innerHTML = `
+            <div class="graph-empty">
+                <strong>还没有知识宇宙</strong>
+                <p>先生成几张卡片，宇宙会自动展开。</p>
+            </div>
+        `;
+        els.knowledgeGraphCards.innerHTML = `
+            <div class="graph-cards-empty">
+                <p>暂无分类内容</p>
+            </div>
+        `;
+        return;
+    }
+
+    const activeGroup = groups.find((group) => group.category === activeGraphCategory) || null;
+    if (activeGraphCategory && !activeGroup) activeGraphCategory = '';
+    const headerHtml = `
+        <div class="graph-page-head">
+            <div>
+                <h2>知识图谱</h2>
+                <p>总览你的知识宇宙</p>
+            </div>
+        </div>
+        <div class="graph-filter-row">
+            ${renderGraphCategorySelect(groups)}
+        </div>
+    `;
+
+    const renderCenterHtml = () => `
+        <div class="universe-center">
+            <div class="universe-center-logo">
+                <svg viewBox="0 0 48 48" aria-hidden="true" focusable="false">
+                    <circle cx="24" cy="24" r="4"></circle>
+                    <path d="M24 8v8M24 32v8M8 24h8M32 24h8M13 13l6 6M29 29l6 6M35 13l-6 6M19 29l-6 6"></path>
+                </svg>
+            </div>
+            <div class="universe-center-title">我的知识库</div>
+            <div class="universe-center-count">${totalCount.toLocaleString()} <span>张卡片</span></div>
+            <div class="universe-center-label">持续生长中</div>
+        </div>
+    `;
+
+    const mapGroups = chunkGraphGroups(groups);
+    const mapsHtml = mapGroups.map((groupChunk, mapIndex) => {
+        const graphLayout = calculateBubbleLayout(groupChunk.length);
+        const orbitHtml = graphLayout.orbits
+            .map((orbit) => `<div class="universe-orbit" style="width:${orbit * 2}%;height:${orbit * 2}%;"></div>`)
+            .join('');
+        const bubblesHtml = groupChunk.map((group, index) => {
+            const pos = graphLayout.positions[index];
+            const isActive = activeGroup && group.category === activeGroup.category;
+            const bgColor = getCategoryColor(group.category);
+            return `
+                <button
+                    type="button"
+                    class="universe-bubble ${isActive ? 'active' : ''}"
+                    data-graph-category="${escapeHTML(group.category)}"
+                    style="left:${pos.x}%;top:${pos.y}%;background:${bgColor};--bubble-size:${pos.size}px;--bubble-font:${pos.fontSize}px;--bubble-count-font:${pos.countFontSize}px;--bubble-icon:${pos.iconSize}px;--bubble-tag-display:${pos.showTag ? 'inline-block' : 'none'};"
+                >
+                    <span class="universe-bubble-name">${escapeHTML(group.category)}</span>
+                    <span class="universe-bubble-count">${group.cards.length} 张卡片</span>
+                    <span class="universe-bubble-tag">${escapeHTML(getGraphUpdatedLabel(group))}</span>
+                </button>
+            `;
+        }).join('');
+        return `<div class="universe-map ${mapIndex > 0 ? 'universe-map-more' : ''} universe-map-count-${groupChunk.length}">${orbitHtml + renderCenterHtml() + bubblesHtml}</div>`;
+    }).join('');
+
+    let railTitle = activeGroup?.category || '';
+    let railKicker = activeGroup ? `${activeGroup.cards.length} 张卡片` : '';
+    let railCards = activeGroup?.cards || [];
+    let emptyText = '暂无分类内容';
+    let showDetailPage = !!activeGroup;
+
+    if (!showDetailPage) {
+        els.knowledgeUniverse.style.display = 'block';
+        els.knowledgeUniverse.innerHTML = headerHtml + `<div class="universe-map-stack">${mapsHtml}</div>`;
+        els.knowledgeGraphCards.innerHTML = '';
+        els.knowledgeGraphCards.style.display = 'none';
+        refreshIcons();
+        return;
+    }
+
+    els.knowledgeUniverse.style.display = 'none';
+    els.knowledgeGraphCards.innerHTML = `
+        <div class="graph-list-page">
+            <button type="button" class="graph-back-btn" data-graph-back>
+                <i data-lucide="arrow-left"></i>
+                返回图谱
+            </button>
+            <div class="graph-card-head">
+                <div>
+                    <span class="graph-card-head-kicker">知识卡片</span>
+                    <strong>${escapeHTML(railTitle)}</strong>
+                    <p>${escapeHTML(railKicker)}</p>
+                </div>
+            </div>
+            ${railCards.length
+                ? `<div class="graph-card-list graph-card-list-page">${railCards.map((card) => renderKnowledgeGraphCard(card, 'page')).join('')}</div>`
+                : `<div class="graph-cards-empty"><p>${escapeHTML(emptyText)}</p></div>`}
+        </div>
+    `;
+    els.knowledgeGraphCards.style.display = 'block';
+    refreshIcons();
+}
+
+function chunkGraphGroups(groups) {
+    const chunkSize = groups.length <= 8 ? groups.length : 8;
+    const chunks = [];
+    for (let index = 0; index < groups.length; index += chunkSize) {
+        chunks.push(groups.slice(index, index + chunkSize));
+    }
+    return chunks;
+}
+
+// 每个圆盘保持可读尺寸；分类多时会拆成多个圆盘纵向排列
+function calculateBubbleLayout(count) {
+    const centerX = 50;
+    const centerY = 50;
+    const positions = [];
+
+    const pushRing = (ringCount, startIndex, radius, size, fontSize, countFontSize, iconSize, showTag, angleOffset = -90) => {
+        for (let i = 0; i < ringCount; i++) {
+            const angle = (360 / ringCount) * i + angleOffset;
+            const rad = (angle * Math.PI) / 180;
+            const x = centerX + radius * Math.cos(rad);
+            const y = centerY + radius * Math.sin(rad);
+            positions[startIndex + i] = {
+                x: Math.max(10, Math.min(90, Number(x.toFixed(2)))),
+                y: Math.max(10, Math.min(90, Number(y.toFixed(2)))),
+                size,
+                fontSize,
+                countFontSize,
+                iconSize,
+                showTag
+            };
+        }
+    };
+
+    if (count <= 1) {
+        pushRing(count, 0, 36, 128, 15, 12, 28, true);
+        return { positions, orbits: [36, 22] };
+    }
+
+    if (count <= 4) {
+        pushRing(count, 0, 38, 124, 15, 12, 28, true);
+        return { positions, orbits: [38, 22] };
+    }
+
+    if (count <= 6) {
+        pushRing(count, 0, 39, 112, 14, 11, 25, true);
+        return { positions, orbits: [39, 22] };
+    }
+
+    if (count <= 8) {
+        pushRing(count, 0, 36, 92, 13, 11, 23, true);
+        return { positions, orbits: [37, 22] };
+    }
+
+    pushRing(count, 0, 37, 82, 12, 10, 21, false);
+    return { positions, orbits: [38, 22] };
+}
+
 // 绑定事件
 function bindEvents() {
     // 生成卡片
@@ -463,38 +1248,33 @@ function bindEvents() {
     
     // 分类点击 (领域内搜索)
     els.categoryList.addEventListener('click', (e) => {
+        const deleteBtn = e.target.closest('.category-delete');
+        if (deleteBtn) {
+            e.preventDefault();
+            e.stopPropagation();
+            deleteCategory(deleteBtn.dataset.deleteCategory);
+            return;
+        }
         const btn = e.target.closest('.category-tag');
         if (!btn) return;
-        
-        // 更新激活状态
-        document.querySelectorAll('.category-tag').forEach(el => el.classList.remove('active'));
-        btn.classList.add('active');
-        
-        currentCategory = btn.dataset.category;
-        
-        // 更新搜索框提示
-        els.searchInput.placeholder = `在【${currentCategory}】中搜索...`;
-        
-        renderCards();
+        setCurrentCategory(btn.dataset.category);
     });
     
     // 搜索
     els.searchInput.addEventListener('input', (e) => {
         currentSearch = e.target.value.trim().toLowerCase();
         els.btnClearSearch.classList.toggle('hidden', !currentSearch);
-        if (currentSearch) {
-            showSearchResults(currentSearch);
-        } else {
-            closeSearchResults();
-        }
+        closeSearchResults();
+        renderCards();
     });
     els.btnClearSearch.addEventListener('click', () => {
         els.searchInput.value = '';
         currentSearch = '';
         els.btnClearSearch.classList.add('hidden');
         closeSearchResults();
+        renderCards();
     });
-    els.btnCloseSearch.addEventListener('click', closeSearchResults);
+    bindCloseButton(els.btnCloseSearch, closeSearchResults);
     
     // 卡片选择与操作
     els.btnCancelSelect.addEventListener('click', () => {
@@ -517,17 +1297,27 @@ function bindEvents() {
     }, true);
     
     // 详情弹窗
-    els.btnCloseModal.addEventListener('click', () => {
-        els.cardModal.classList.add('hidden');
-        currentViewCardId = null;
-    });
+    bindCloseButton(els.btnCloseModal, closeCardModal);
+    bindBackdropClose(els.cardModal, closeCardModal);
+    bindBackdropClose(els.searchModal, closeSearchResults);
+    bindBackdropClose(els.actionModal, closeActionModal);
+    bindBackdropClose(els.notebookModal, closeNotebookModal);
+    bindBackdropClose(els.flashcardModal, closeFlashcardModal);
+    bindBackdropClose(els.settingsModal, closeSettingsModal);
+    bindBackdropClose(els.integratePreviewModal, closeIntegratePreview);
     
     els.btnDeleteCard.addEventListener('click', () => {
         if (!currentViewCardId) return;
         if (confirm('确定要删除这张卡片吗？')) {
-            cards = cards.filter(c => c.id !== currentViewCardId);
+            const deletedId = currentViewCardId;
+            cards = cards.filter(c => c.id !== deletedId);
+            selectedCards.delete(deletedId);
+            if (currentActionCardId === deletedId) currentActionCardId = null;
+            if (currentReviewCardId === deletedId) currentReviewCardId = null;
             saveCards();
-            els.cardModal.classList.add('hidden');
+            closeCardModal();
+            renderCategoryNav();
+            updateBatchActions();
             renderCards();
             renderDailyReview();
         }
@@ -547,21 +1337,21 @@ function bindEvents() {
         els.btnOpenNotebook.addEventListener('click', openNotebook);
     }
     if (els.btnCloseNotebook) {
-        els.btnCloseNotebook.addEventListener('click', () => els.notebookModal.classList.add('hidden'));
+        bindCloseButton(els.btnCloseNotebook, closeNotebookModal);
     }
     if (els.btnSaveNotebook) {
         els.btnSaveNotebook.addEventListener('click', saveNotebook);
     }
 
     // 整合预览弹窗
-    els.btnCloseIntegratePreview.addEventListener('click', closeIntegratePreview);
+    bindCloseButton(els.btnCloseIntegratePreview, closeIntegratePreview);
     els.btnCancelIntegrate.addEventListener('click', closeIntegratePreview);
     els.btnConfirmIntegrate.addEventListener('click', confirmIntegrate);
 
-    els.btnActionCancel.addEventListener('click', () => els.actionModal.classList.add('hidden'));
+    els.btnActionCancel.addEventListener('click', closeActionModal);
     els.btnActionDetail.addEventListener('click', () => {
         const card = cards.find(c => c.id === currentActionCardId);
-        els.actionModal.classList.add('hidden');
+        closeActionModal();
         if (card) openCardDetail(card);
     });
 
@@ -583,17 +1373,22 @@ function bindEvents() {
         e.stopPropagation();
         openSwipeReview();
     });
+    els.reviewHeading.addEventListener('click', openSwipeReview);
+    els.reviewQueueLabel.addEventListener('click', openSwipeReview);
+    els.reviewStreakButton.addEventListener('click', showReviewStats);
 
     // 点击今日复习卡片翻转
     els.reviewCard.addEventListener('click', (e) => {
         if (e.target.closest('.btn')) return; // 不拦截按钮点击
+        if (reviewSession.completed || !currentReviewCardId) return;
         if (reviewSession.completed || !currentReviewCardId) return;
         if (reviewCardFlipped) return;
         setReviewCardFlip(true);
     });
 
     // 滑动复习弹窗
-    els.btnCloseSwipeReview.addEventListener('click', closeSwipeReview);
+    bindCloseButton(els.btnCloseSwipeReview, closeSwipeReview);
+    bindBackdropClose(els.swipeModal, closeSwipeReview);
     els.btnSwipeDoneClose.addEventListener('click', startQuizMode);
     els.btnQuizCompleteClose.addEventListener('click', closeSwipeReview);
     els.btnSwipeUnderstood.addEventListener('click', () => handleSwipeDecision('understood'));
@@ -602,9 +1397,7 @@ function bindEvents() {
     
     // 闪卡复习
     if (els.btnFlashcard) els.btnFlashcard.addEventListener('click', startFlashcardMode);
-    els.btnCloseFlashcard.addEventListener('click', () => {
-        els.flashcardModal.classList.add('hidden');
-    });
+    bindCloseButton(els.btnCloseFlashcard, closeFlashcardModal);
     els.flashcardElement.addEventListener('click', () => {
         els.flashcardElement.classList.add('is-flipped');
         els.fcActions.classList.remove('hidden');
@@ -623,7 +1416,7 @@ function bindEvents() {
         els.apiKeyInput.value = API_KEY;
         els.settingsModal.classList.remove('hidden');
     });
-    els.btnCloseSettings.addEventListener('click', () => els.settingsModal.classList.add('hidden'));
+    bindCloseButton(els.btnCloseSettings, closeSettingsModal);
     els.btnSaveSettings.addEventListener('click', () => {
         API_KEY = els.apiKeyInput.value.trim();
         if (API_KEY) {
@@ -634,6 +1427,10 @@ function bindEvents() {
         els.settingsModal.classList.add('hidden');
         alert(API_KEY ? 'API Key 已保存到当前会话' : 'API Key 已清空');
     });
+    bindCloseButton(els.btnCloseReviewStats, closeReviewStats);
+    els.reviewStatsModal.addEventListener('click', (e) => {
+        if (e.target === els.reviewStatsModal) closeReviewStats();
+    });
 
     document.querySelectorAll('[data-mobile-action]').forEach((btn) => {
         btn.addEventListener('click', () => {
@@ -643,25 +1440,148 @@ function bindEvents() {
             const action = btn.dataset.mobileAction;
             currentView = action;
             currentCategory = '全部';
-            document.querySelectorAll('.category-tag').forEach(el => {
-                el.classList.toggle('active', el.dataset.category === '全部');
-            });
-            els.searchInput.placeholder = '在【全部】中搜索...';
+            renderCategoryNav();
 
             // 输入区只在首页显示
             const composeSection = document.getElementById('compose-section');
             if (composeSection) {
                 composeSection.style.display = action === 'home' ? '' : 'none';
             }
+            if (els.reviewSection) {
+                els.reviewSection.classList.toggle('hidden', action === 'graph');
+            }
+            if (els.toolbar) {
+                els.toolbar.style.display = action === 'graph' ? 'none' : '';
+            }
+            if (els.batchActions) {
+                els.batchActions.classList.add('hidden');
+            }
+            if (els.cardsContainer) {
+                els.cardsContainer.style.display = action === 'graph' ? 'none' : '';
+            }
+            if (els.knowledgeGraphSection) {
+                els.knowledgeGraphSection.classList.toggle('hidden', action !== 'graph');
+            }
 
-            renderCards();
-            els.cardsContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            if (action === 'graph') {
+                renderKnowledgeGraph();
+                els.knowledgeGraphSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            } else {
+                renderCards();
+                els.cardsContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
         });
+    });
+
+    els.knowledgeUniverse.addEventListener('click', (e) => {
+        const trigger = e.target.closest('[data-graph-category-trigger]');
+        if (trigger) {
+            const wrapper = trigger.closest('.graph-category-select');
+            const isOpen = wrapper?.classList.toggle('is-open');
+            trigger.setAttribute('aria-expanded', String(!!isOpen));
+            return;
+        }
+        const option = e.target.closest('[data-graph-category-option]');
+        if (option) {
+            activeGraphCategory = normalizeCategory(option.dataset.graphCategoryOption || '');
+            activeGraphFilter = 'all';
+            renderKnowledgeGraph();
+            if (activeGraphCategory && els.knowledgeGraphCards) {
+                els.knowledgeGraphCards.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+            return;
+        }
+        const cardNode = e.target.closest('[data-card-id]');
+        if (cardNode) {
+            const card = cards.find((entry) => entry.id === cardNode.dataset.cardId);
+            if (card) openCardActions(card);
+            return;
+        }
+        const bubble = e.target.closest('[data-graph-category]');
+        if (!bubble) return;
+        activeGraphCategory = normalizeCategory(bubble.dataset.graphCategory);
+        activeGraphFilter = 'all';
+        renderKnowledgeGraph();
+        if (els.knowledgeGraphCards) {
+            els.knowledgeGraphCards.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+    });
+
+    els.knowledgeGraphCards.addEventListener('click', (e) => {
+        const backBtn = e.target.closest('[data-graph-back]');
+        if (backBtn) {
+            activeGraphCategory = '';
+            activeGraphFilter = 'all';
+            renderKnowledgeGraph();
+            els.knowledgeUniverse.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            return;
+        }
+        const item = e.target.closest('[data-card-id]');
+        if (!item) return;
+        const card = cards.find((entry) => entry.id === item.dataset.cardId);
+        if (card) openCardActions(card);
     });
 }
 
 // 渲染卡片列表
+function bindCloseButton(button, handler) {
+    if (!button) return;
+    const close = (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        handler();
+    };
+    button.addEventListener('click', close);
+    button.addEventListener('pointerup', close);
+    button.addEventListener('touchend', close, { passive: false });
+}
+
+function bindBackdropClose(modal, handler) {
+    if (!modal) return;
+    modal.addEventListener('click', (event) => {
+        if (event.target === modal) handler();
+    });
+}
+
+function closeActionModal() {
+    els.actionModal.classList.add('hidden');
+    currentActionCardId = null;
+}
+
+function closeCardModal() {
+    els.cardModal.classList.add('hidden');
+    currentViewCardId = null;
+    isEditingCard = false;
+}
+
+function closeNotebookModal() {
+    els.notebookModal.classList.add('hidden');
+}
+
+function closeFlashcardModal() {
+    els.flashcardModal.classList.add('hidden');
+}
+
+function closeSettingsModal() {
+    els.settingsModal.classList.add('hidden');
+}
+
 function renderCards() {
+    if (currentView === 'graph') {
+        if (els.reviewSection) els.reviewSection.classList.add('hidden');
+        if (els.toolbar) els.toolbar.style.display = 'none';
+        if (els.batchActions) els.batchActions.classList.add('hidden');
+        if (els.cardsContainer) els.cardsContainer.style.display = 'none';
+        if (els.knowledgeGraphSection) els.knowledgeGraphSection.classList.remove('hidden');
+        renderKnowledgeGraph();
+        return;
+    }
+
+    if (els.reviewSection) els.reviewSection.classList.remove('hidden');
+    if (els.toolbar) els.toolbar.style.display = '';
+    if (els.cardsContainer) els.cardsContainer.style.display = '';
+    if (els.knowledgeGraphSection) els.knowledgeGraphSection.classList.add('hidden');
+
     let filtered = cards;
 
     // 1. 底部导航状态过滤
@@ -676,17 +1596,32 @@ function renderCards() {
 
     // 2. 顶部内容分类过滤
     if (currentCategory !== '全部') {
-        filtered = filtered.filter(c => c.category === currentCategory);
+        if (currentCategory === MERGED_CATEGORY) {
+            filtered = filtered.filter(c => normalizeCard(c).isIntegrated || c.is_integrated);
+        } else {
+            filtered = filtered.filter(c => normalizeCategory(c.category) === currentCategory);
+        }
     }
-    
+
+    // 3. 当前范围内搜索：只筛选当前底部视图和当前分类里的卡片
+    if (currentSearch) {
+        filtered = filtered.filter(card => cardMatchesSearch(card, currentSearch));
+    }
+
     // 渲染
     els.cardsContainer.innerHTML = '';
-    
+
     console.log('[Zcard] renderCards: 过滤后卡片数量:', filtered.length);
-    
+
     if (filtered.length === 0) {
         console.log('[Zcard] 显示空状态');
         els.emptyState.classList.remove('hidden');
+        const emptyText = els.emptyState.querySelector('p');
+        if (emptyText) {
+            emptyText.textContent = currentSearch
+                ? `没有找到“${currentSearch}”相关卡片`
+                : '还没有知识卡片，快去粘贴文案生成一张吧！';
+        }
         els.cardsContainer.appendChild(els.emptyState);
         return;
     }
@@ -713,7 +1648,7 @@ function renderCards() {
             </button>
         ` : '';
         const badgeText = isIntegratedCard
-            ? `整合 · ${card.category || '未分类'}`
+            ? MERGED_CATEGORY
             : (card.is_todo ? '待办' : card.category);
         
         cardEl.innerHTML = `
@@ -771,6 +1706,7 @@ function renderCards() {
             selectedCards.delete(card.id);
             saveCards();
             updateBatchActions();
+            renderCategoryNav();
             renderCards();
             renderDailyReview();
         });
@@ -837,11 +1773,14 @@ function cardMatchesSearch(card, keyword) {
     if (!normalized) return false;
     const haystack = [
         card.title,
+        card.category,
         card.core_point,
         card.summary,
-        card.quote,
-        card.action,
-        ...safeList(card.key_points),
+        card.note,
+        card.video_link,
+        ...safeList(card.key_points).map((point, index) => pointPlainText(point, index)),
+        ...safeList(card.source_titles),
+        ...safeList(card.source_links),
         ...safeList(card.angles)
     ].join(' ').toLowerCase();
     return haystack.includes(normalized);
@@ -853,7 +1792,7 @@ function showSearchResults(keyword) {
     els.searchResultCount.textContent = results.length ? `共找到 ${results.length} 张卡片` : '未找到相关卡片';
     els.searchResults.innerHTML = results.length
         ? results.map(card => renderResultCardHTML(card)).join('')
-        : '<div class="empty-search">未找到相关卡片</div>';
+        : '';
     els.searchResults.querySelectorAll('.search-result-card').forEach((cardEl) => {
         cardEl.addEventListener('click', () => {
             const card = cards.find(item => item.id === cardEl.dataset.id);
@@ -874,7 +1813,7 @@ function renderResultCardHTML(card) {
     return `
         <article class="knowledge-card search-result-card ${card.isFavorite ? 'favorite-card' : ''}" data-id="${escapeHTML(card.id)}">
             <div class="card-header">
-                <span class="card-badge">${escapeHTML(card.category || '未分类')}</span>
+                <span class="card-badge">${escapeHTML(card.category || DEFAULT_CATEGORY)}</span>
                 ${card.isFavorite ? '<span class="favorite-star" title="已收藏">⭐</span>' : ''}
             </div>
             <h3 class="card-title" ${styleAttr(card, 'title')}>${escapeHTML(card.title)}</h3>
@@ -884,10 +1823,7 @@ function renderResultCardHTML(card) {
 }
 
 function updateCollectionTabState() {
-    const collectTab = els.categoryList.querySelector('[data-category="收藏"]');
-    if (!collectTab) return;
-    const hasFavorite = cards.some(card => normalizeCard(card).isFavorite);
-    collectTab.classList.toggle('has-favorites', hasFavorite);
+    renderCategoryNav();
 }
 
 function toggleFavoriteCard(card) {
@@ -1028,16 +1964,14 @@ function getReviewRingTheme(streakDays) {
 }
 
 function getAllReviewCandidates() {
-    return cards.filter((card) => !card.is_todo);
+    return cards.filter((card) => normalizeCard(card).isRead && !card.is_todo);
 }
 
 function pickDailyReviewCards() {
     const candidates = getAllReviewCandidates();
     if (candidates.length === 0) return [];
 
-    const preferred = shuffleArray(candidates.filter((card) => card.isRead));
-    const fallback = shuffleArray(candidates.filter((card) => !card.isRead));
-    return [...preferred, ...fallback].slice(0, Math.min(dailyReviewSettings.cardCount, candidates.length));
+    return shuffleArray(candidates).slice(0, Math.min(dailyReviewSettings.cardCount, candidates.length));
 }
 
 function ensureDailyReviewSession(forceNew = false) {
@@ -1082,6 +2016,8 @@ function getCardById(cardId) {
 
 function includeCardInTodayReviewSession(cardId) {
     if (!cardId) return;
+    const card = getCardById(cardId);
+    if (!card || !normalizeCard(card).isRead || card.is_todo) return;
     reviewSession = ensureDailyReviewSession(cards.length > 0 ? false : true);
 
     const normalizedIds = safeList(reviewSession.cardIds).filter((id) => id !== cardId);
@@ -1108,7 +2044,9 @@ function applyReviewStats() {
     els.reviewStreakRing.style.setProperty('--ring-color', theme.color);
     els.reviewStreakDays.textContent = String(stats.streakDays);
     els.reviewStreakLabel.textContent = theme.label;
-    els.reviewPowerTotal.textContent = `知识力 ${stats.knowledgePower}`;
+    if (els.reviewPowerTotal) {
+        els.reviewPowerTotal.textContent = `知识力 ${stats.knowledgePower}`;
+    }
     return stats;
 }
 
@@ -1117,6 +2055,31 @@ function resetReviewCardContent() {
     els.btnReviewDo.classList.remove('hidden');
     els.btnReviewSkip.classList.remove('hidden');
     els.reviewSection.classList.remove('hidden');
+}
+
+function setDailyReviewEntry(streakDays, remainingCount, disabled = false) {
+    const text = remainingCount > 0 ? `今日剩余${remainingCount}张` : '今日无待回顾';
+    if (els.reviewMainEntryText) {
+        els.reviewMainEntryText.textContent = text;
+    }
+    els.reviewQueueLabel.textContent = `${streakDays}天，${text}`;
+    els.reviewHeading.disabled = !!disabled;
+    els.reviewQueueLabel.disabled = !!disabled;
+}
+
+function showReviewStats() {
+    const stats = loadReviewStats();
+    const today = todayKey();
+    const doneToday = reviewSession?.completed && reviewSession.date === today;
+    els.reviewStatsStreak.textContent = String(stats.streakDays);
+    els.reviewStatsTotal.textContent = String(stats.totalSessions);
+    els.reviewStatsPower.textContent = String(stats.knowledgePower);
+    els.reviewStatsStatus.textContent = doneToday ? '今日已完成，明天继续从已读卡片里抽取。' : '今日未完成，点今日回顾即可开始。';
+    els.reviewStatsModal.classList.remove('hidden');
+}
+
+function closeReviewStats() {
+    els.reviewStatsModal.classList.add('hidden');
 }
 
 function renderDailyReview() {
@@ -1132,16 +2095,15 @@ function renderDailyReview() {
     if (allCandidates.length === 0) {
         currentReviewCardId = null;
         resetReviewCardContent();
-        els.reviewHeading.textContent = '进入复习';
-        els.reviewSubtext.textContent = '先生成几张卡片，再来开启随机复习。';
-        els.reviewMetaText.textContent = '随机复习';
+        setDailyReviewEntry(stats.streakDays, 0, true);
+        els.reviewSubtext.textContent = '点击卡片详情里的 Get it 后，卡片才会进入每日回顾。';
+        els.reviewMetaText.textContent = '每日回顾';
         els.reviewBackMeta.textContent = '今日队列';
-        els.reviewTitle.textContent = '还没有可复习卡片';
-        els.reviewCore.textContent = '系统会从全部现有卡片中随机抽取 3 到 5 张作为今日复习队列。';
-        els.reviewBackTitle.textContent = '暂无复习内容';
-        els.reviewBackCore.textContent = '先生成卡片，再回来开启答题复习。';
-        els.reviewHint.textContent = '生成卡片后，这里会自动出现今日随机复习入口。';
-        els.reviewQueueLabel.textContent = '待复习 0 张';
+        els.reviewTitle.textContent = '还没有已读卡片';
+        els.reviewCore.textContent = '先打开一张卡片，点击 Get it，把它加入已读和回顾池。';
+        els.reviewBackTitle.textContent = '暂无回顾内容';
+        els.reviewBackCore.textContent = '已读卡片会自动进入每日回顾。';
+        els.reviewHint.textContent = 'Get it 后，这里会显示今日回顾入口。';
         els.btnReviewDo.classList.add('hidden');
         els.btnReviewSkip.classList.add('hidden');
         return;
@@ -1154,47 +2116,44 @@ function renderDailyReview() {
     resetReviewCardContent();
 
     if (reviewSession.completed) {
-        els.reviewHeading.textContent = '今日打卡完成';
-        els.reviewSubtext.textContent = '恭喜您已经完成本次打卡，明天会自动刷新新的随机复习队列。';
+        setDailyReviewEntry(stats.streakDays, 0, true);
+        els.reviewSubtext.textContent = '今日回顾已完成，明天会刷新新的已读卡片队列。';
         els.reviewMetaText.textContent = '今日已完成';
         els.reviewBackMeta.textContent = '完成状态';
         els.reviewTitle.textContent = '恭喜您已经完成本次打卡';
         els.reviewCore.textContent = `本轮答题答对 ${reviewSession.correctCount} 题，答错 ${reviewSession.wrongCount} 题，连续打卡 ${stats.streakDays} 天。`;
-        els.reviewBackTitle.textContent = '随机复习已完成';
-        els.reviewBackCore.textContent = '进度环已更新，明天会继续为你随机抽题。';
+        els.reviewBackTitle.textContent = '每日回顾已完成';
+        els.reviewBackCore.textContent = '进度环已更新，明天会继续从已读卡片中抽取。';
         els.reviewHint.textContent = '今日任务完成，继续保持连续打卡。';
-        els.reviewQueueLabel.textContent = `今日完成 ${reviewSession.cardIds.length} 张`;
         els.btnReviewDo.classList.add('hidden');
         els.btnReviewSkip.classList.add('hidden');
         return;
     }
 
     if (!currentCard) {
-        els.reviewHeading.textContent = '今日队列已清空';
-        els.reviewSubtext.textContent = '当前随机队列已经处理完毕，你可以等待明天的新一轮复习。';
-        els.reviewMetaText.textContent = '今日复习';
+        setDailyReviewEntry(stats.streakDays, 0, true);
+        els.reviewSubtext.textContent = '当前每日回顾队列已经处理完毕。';
+        els.reviewMetaText.textContent = '每日回顾';
         els.reviewBackMeta.textContent = '今日队列';
         els.reviewTitle.textContent = '今天没有待处理卡片了';
         els.reviewCore.textContent = '你已经跳过或处理完今天抽到的全部卡片。';
         els.reviewBackTitle.textContent = '今日队列已清空';
-        els.reviewBackCore.textContent = '明天会自动生成新的随机复习队列。';
+        els.reviewBackCore.textContent = '明天会从已读卡片里生成新的回顾队列。';
         els.reviewHint.textContent = '今日队列处理完成。';
-        els.reviewQueueLabel.textContent = '待复习 0 张';
         els.btnReviewDo.classList.add('hidden');
         els.btnReviewSkip.classList.add('hidden');
         return;
     }
 
-    els.reviewHeading.textContent = '进入复习';
-    els.reviewSubtext.textContent = `系统已从全部卡片中抽取 ${reviewSession.cardIds.length} 张，优先已读卡片，不足时自动补齐。`;
-    els.reviewMetaText.textContent = `今日复习 · 剩余 ${queueCards.length} 张`;
+    setDailyReviewEntry(stats.streakDays, queueCards.length, false);
+    els.reviewSubtext.textContent = '点击上方文字开始回顾；仅从已读卡片中抽取。';
+    els.reviewMetaText.textContent = `每日回顾 · 剩余 ${queueCards.length} 张`;
     els.reviewBackMeta.textContent = `今日队列 · ${queueCards.length} 张`;
     els.reviewTitle.textContent = currentCard.title || '知识复习';
     els.reviewCore.textContent = currentCard.core_point || currentCard.summary || '点击翻转后开始今天的固定模板答题复习。';
     els.reviewBackTitle.textContent = currentCard.title || '开始今日复习';
     els.reviewBackCore.textContent = '先完成左滑右滑快速回忆，再进入核心观点选择题。';
-    els.reviewHint.textContent = '点击卡片翻转，选择“开始复习”或“跳过这张”。';
-    els.reviewQueueLabel.textContent = `待复习 ${queueCards.length} 张`;
+    els.reviewHint.textContent = '点击上方每日回顾文字开始。';
 }
 
 function skipCurrentReviewCard() {
@@ -1241,7 +2200,7 @@ function openSwipeReview() {
     const nextReviewIds = getReviewQueueIds(reviewSession);
     const nextSwipeQueue = nextReviewIds.map(getCardById).filter(Boolean);
     if (nextSwipeQueue.length === 0) {
-        alert('今天的随机复习队列已经空了，明天会自动刷新新题。');
+        alert('今天的每日回顾队列已经空了。');
         renderDailyReview();
         return;
     }
@@ -1268,9 +2227,6 @@ function finishSwipeReview() {
     els.swipeStatUnderstood.textContent = swipeUnderstood;
     els.swipeStatConfused.textContent = swipeConfused;
     els.swipeDone.classList.remove('hidden');
-    quizTransitionTimer = window.setTimeout(() => {
-        startQuizMode();
-    }, 900);
 }
 
 function renderSwipeReviewCard() {
@@ -1280,10 +2236,10 @@ function renderSwipeReviewCard() {
     }
     const card = swipeReviewQueue[swipeReviewIndex];
     els.swipeProgress.textContent = `${swipeReviewIndex + 1} / ${swipeReviewQueue.length}`;
-    els.srCategory.textContent = card.category || '未分类';
+    els.srCategory.textContent = card.category || DEFAULT_CATEGORY;
     els.srTitle.textContent = card.title || '';
     els.srCore.textContent = card.core_point || card.summary || '';
-    els.srPoints.innerHTML = safeList(card.key_points).map(p => `<li>${escapeHTML(p)}</li>`).join('');
+    els.srPoints.innerHTML = safeList(card.key_points).map((point, index) => `<li>${escapeHTML(pointPlainText(point, index))}</li>`).join('');
     els.swipeCard.style.transform = '';
     els.swipeCard.style.opacity = '1';
     els.swipeCard.classList.remove('swiping-left', 'swiping-right');
@@ -1329,25 +2285,32 @@ function getQuizPrompt(card) {
     return String(card.core_point || card.summary || safeList(card.key_points)[0] || card.title || '').trim();
 }
 
+function trimOptionText(text, max = 86) {
+    const normalized = String(text || '').replace(/\s+/g, ' ').trim();
+    return normalized.length > max ? `${normalized.slice(0, max)}...` : normalized;
+}
+
 function getDistractorTexts(currentCard) {
-    const distractors = [];
-    const used = new Set([getQuizPrompt(currentCard)]);
-    const otherCards = shuffleArray(cards.filter((card) => !card.is_todo && card.id !== currentCard.id));
-
-    otherCards.forEach((card) => {
-        [card.core_point, card.summary, ...safeList(card.key_points), card.action].forEach((value) => {
-            const text = String(value || '').trim();
-            if (!text || used.has(text) || distractors.length >= 3) return;
-            used.add(text);
-            distractors.push(text);
-        });
-    });
-
-    return distractors.slice(0, 3);
+    const title = currentCard.title || '这张卡片';
+    const points = safeList(currentCard.key_points).map((point, index) => normalizeKeyPoint(point, index));
+    const firstPoint = points[0] || { heading: '核心要点', content: getQuizPrompt(currentCard) };
+    const secondPoint = points[1] || points[0] || firstPoint;
+    const core = getQuizPrompt(currentCard);
+    const candidates = [
+        `把“${firstPoint.heading}”当成孤立技巧，不需要联系卡片的主要观点。`,
+        `与卡片观点相反，${title}更强调短期刺激和表面记忆，而不是理解背后的原因。`,
+        `只需要记住“${secondPoint.heading}”这个词，不必判断它在实际场景中如何使用。`,
+        `这张卡片的重点是收集更多信息，而不是围绕“${trimOptionText(core, 28)}”形成理解。`
+    ];
+    const used = new Set([core]);
+    return candidates
+        .map((text) => trimOptionText(text))
+        .filter((text) => text && !used.has(text) && (used.add(text), true))
+        .slice(0, 3);
 }
 
 function buildQuizQuestion(card) {
-    const correctAnswer = getQuizPrompt(card);
+    const correctAnswer = trimOptionText(getQuizPrompt(card));
     const distractors = getDistractorTexts(card);
     QUIZ_FALLBACK_OPTIONS.forEach((text) => {
         if (distractors.length >= 3) return;
@@ -1359,6 +2322,7 @@ function buildQuizQuestion(card) {
 
     return {
         card,
+        question: '以下哪项最符合这张卡片的主要观点？',
         correctAnswer,
         options: options.map((text, index) => ({
             label: labels[index] || String(index + 1),
@@ -1409,6 +2373,7 @@ function renderQuizQuestion() {
     els.swipeDone.classList.add('hidden');
     els.quizStage.classList.remove('hidden');
     els.quizCardTitle.textContent = currentQuizQuestion.card.title || '知识卡片';
+    els.quizQuestion.textContent = currentQuizQuestion.question;
     els.quizProgress.textContent = `${quizIndex + 1} / ${quizQueue.length}`;
     els.quizFeedback.classList.add('hidden');
     els.quizFeedback.textContent = '';
@@ -1517,7 +2482,7 @@ function completeQuizReview() {
     els.quizStage.classList.add('hidden');
     els.quizComplete.classList.remove('hidden');
     els.quizCompleteTitle.textContent = '恭喜您已经完成本次打卡';
-    els.quizCompleteCopy.textContent = `进度环已更新，连续打卡 ${stats.streakDays} 天，明天会继续为你随机抽题。`;
+    els.quizCompleteCopy.textContent = `进度环已更新，连续打卡 ${stats.streakDays} 天，明天会继续从已读卡片中抽取。`;
     els.quizCompleteCorrect.textContent = String(quizCorrect);
     els.quizCompleteWrong.textContent = String(quizWrong);
     els.quizCompleteStreak.textContent = String(stats.streakDays);
@@ -1628,28 +2593,25 @@ function openCardDetail(card, editMode = false) {
     } else
     if (card.is_integrated) {
         contentHtml = `
-            <span class="detail-badge">整合卡片 · ${escapeHTML(card.category || '未分类')}</span>
-            <h2 class="detail-title" ${styleAttr(card, 'title')}>${escapeHTML(card.title)}</h2>
+            <span class="detail-badge">${MERGED_CATEGORY}</span>
+            <h2 class="detail-title" ${styleAttr(card, 'title')}>${renderMarkedField(card, 'title')}</h2>
             <div class="detail-section">
-                <h4>核心观点</h4>
-                <p ${styleAttr(card, 'core_point')}>${escapeHTML(card.core_point || card.summary || '')}</p>
+                <h4>主要观点</h4>
+                <p ${styleAttr(card, 'core_point')}>${renderMarkedField(card, 'core_point', card.summary || '')}</p>
             </div>
             <div class="detail-section">
                 <h4>关键要点</h4>
-                <ul ${styleAttr(card, 'key_points')}>
-                    ${safeList(card.key_points).map((point) => `<li>${escapeHTML(point)}</li>`).join('')}
-                </ul>
+                <div ${styleAttr(card, 'key_points')}>
+                    ${renderDetailPoints(card.key_points, card.marks?.key_points)}
+                </div>
             </div>
-            ${card.quote ? `<div class="quote-section" ${styleAttr(card, 'quote')}>"${escapeHTML(card.quote)}"</div>` : ''}
-            ${card.action ? `
-            <div class="detail-section">
-                <h4>行动建议</h4>
-                <p ${styleAttr(card, 'action')}>${escapeHTML(card.action)}</p>
-            </div>` : ''}
+            ${renderSourceLink(card)}
             ${safeList(card.sourceCards).length ? `
             <div class="detail-section">
                 <h4>来源卡片</h4>
-                <p>${safeList(card.sourceCards).map((id) => escapeHTML(id)).join('、')}</p>
+                <p>${safeList(card.source_titles).length
+                    ? safeList(card.source_titles).map((title) => escapeHTML(title)).join('、')
+                    : safeList(card.sourceCards).map((id) => escapeHTML(id)).join('、')}</p>
             </div>` : ''}
             ${card.note ? renderNoteSection(card.note, card) : ''}
         `;
@@ -1657,28 +2619,24 @@ function openCardDetail(card, editMode = false) {
         // 普通卡片/待办卡片布局
         contentHtml = `
             <span class="detail-badge">${escapeHTML(card.category)}</span>
-            <h2 class="detail-title" ${styleAttr(card, 'title')}>${escapeHTML(card.title)}</h2>
+            <h2 class="detail-title" ${styleAttr(card, 'title')}>${renderMarkedField(card, 'title')}</h2>
             <div class="detail-section">
-                <h4>核心观点</h4>
-                <p ${styleAttr(card, 'core_point')}>${escapeHTML(card.core_point)}</p>
+                <h4>主要观点</h4>
+                <p ${styleAttr(card, 'core_point')}>${renderMarkedField(card, 'core_point')}</p>
             </div>
             <div class="detail-section">
                 <h4>关键要点</h4>
-                <ul ${styleAttr(card, 'key_points')}>
-                    ${safeList(card.key_points).map(p => `<li>${escapeHTML(p)}</li>`).join('')}
-                </ul>
+                <div ${styleAttr(card, 'key_points')}>
+                    ${renderDetailPoints(card.key_points, card.marks?.key_points)}
+                </div>
             </div>
-            ${card.quote ? `<div class="quote-section" ${styleAttr(card, 'quote')}>"${escapeHTML(card.quote)}"</div>` : ''}
-            ${card.action ? `
-            <div class="detail-section">
-                <h4>行动建议</h4>
-                <p ${styleAttr(card, 'action')}>${escapeHTML(card.action)}</p>
-            </div>` : ''}
+            ${renderSourceLink(card)}
             ${card.note ? renderNoteSection(card.note, card) : ''}
         `;
     }
     
     els.modalBody.innerHTML = contentHtml;
+    bindDetailPointToggles();
     if (editMode) {
         bindEditStyleControls();
     }
@@ -1704,49 +2662,104 @@ function openCardDetail(card, editMode = false) {
     refreshIcons();
 }
 
+function bindDetailPointToggles() {
+    els.modalBody.querySelectorAll('[data-point-toggle]').forEach((button) => {
+        button.addEventListener('click', () => {
+            const item = button.closest('.detail-point-item');
+            if (!item) return;
+            const isOpen = item.classList.toggle('is-open');
+            button.setAttribute('aria-expanded', String(isOpen));
+        });
+    });
+}
+
 function renderCardEditForm(card) {
     normalizeCard(card);
+    pendingEditMarks = {
+        title: normalizeMarkRanges(card.marks?.title),
+        core_point: normalizeMarkRanges(card.marks?.core_point),
+        key_points: normalizeMarkRanges(card.marks?.key_points),
+        note: normalizeMarkRanges(card.marks?.note)
+    };
+    const categories = getUserCategories()
+        .filter((category) => category !== '全部')
+        .map((category) => `<option value="${escapeHTML(category)}"></option>`)
+        .join('');
     return `
-        <span class="detail-badge">编辑卡片</span>
         <div class="edit-form">
-            ${renderEditField('title', '标题', 'input', card.title, card)}
-            <label>领域<input id="edit-category" value="${escapeHTML(card.category || '')}"></label>
-            ${renderEditField('core_point', '核心观点', 'textarea', card.core_point || card.summary || '', card)}
-            ${renderEditField('key_points', '关键要点', 'textarea', safeList(card.key_points).join('\n'), card)}
-            ${renderEditField('quote', '金句', 'textarea', card.quote || '', card)}
-            ${renderEditField('action', '行动建议', 'textarea', card.action || '', card)}
-            ${renderEditField('note', '自由补充', 'textarea', card.note || '', card)}
-            <label>视频链接<input id="edit-link" value="${escapeHTML(card.video_link || '')}"></label>
-            <div class="edit-dock" aria-label="编辑工具栏">
-                <button type="button" data-font-size="14px">A-</button>
-                <button type="button" data-font-size="16px">A</button>
-                <button type="button" data-font-size="18px">A+</button>
-                <span class="dock-divider"></span>
-                <button type="button" class="color-dot" data-color="#1f1f1d" style="--dot:#1f1f1d" title="黑色"></button>
-                <button type="button" class="color-dot" data-color="#c44f45" style="--dot:#c44f45" title="红色"></button>
-                <button type="button" class="color-dot" data-color="#2563eb" style="--dot:#2563eb" title="蓝色"></button>
-                <button type="button" class="color-dot" data-color="#6f6b65" style="--dot:#6f6b65" title="灰色"></button>
-                <span class="dock-divider"></span>
-                <button type="button" data-format="bold"><strong>B</strong></button>
-                <button type="button" data-format="underline"><u>U</u></button>
-                <button type="button" data-format="italic"><em>I</em></button>
+            <div class="edit-form-head">
+                <span class="detail-badge">编辑内容</span>
+                <h2>整理这张知识卡</h2>
+                <p>改动会保存在本地卡片库里，关键要点建议一行写一个。</p>
             </div>
+            <div class="edit-field-grid">
+                ${renderEditField('title', '标题', 'input', card.title, card, { placeholder: '给这张卡片起一个清楚的标题' })}
+                <label class="editable-field" data-field="category">
+                    <span>领域</span>
+                    <input id="edit-category" list="edit-category-list" value="${escapeHTML(card.category || '')}" placeholder="选择或输入新分类">
+                    <datalist id="edit-category-list">${categories}</datalist>
+                </label>
+            </div>
+            ${renderEditField('core_point', '主要观点', 'textarea', card.core_point || card.summary || '', card, { placeholder: '用一句话写清这张卡最重要的观点' })}
+            ${renderEditField('key_points', '关键要点', 'textarea', safeList(card.key_points).map((point, index) => pointPlainText(point, index)).join('\n'), card, { placeholder: '每行一个要点', helper: '保存后会自动整理成要点列表。' })}
+            ${renderEditField('note', '自由补充', 'textarea', card.note || '', card, { placeholder: '补充你的理解、例子或后续行动' })}
+            <label class="editable-field" data-field="video_link">
+                <span>原视频链接</span>
+                <input id="edit-link" value="${escapeHTML(card.video_link || '')}" placeholder="https://...">
+            </label>
+            <details class="edit-style-panel">
+                <summary>文字样式</summary>
+                <div class="edit-dock" aria-label="编辑工具栏">
+                    <button type="button" data-font-size="14px">A-</button>
+                    <button type="button" data-font-size="16px">A</button>
+                    <button type="button" data-font-size="18px">A+</button>
+                    <span class="dock-divider"></span>
+                    <button type="button" class="color-dot" data-color="#1f1f1d" style="--dot:#1f1f1d" title="黑色"></button>
+                    <button type="button" class="color-dot" data-color="#c44f45" style="--dot:#c44f45" title="红色"></button>
+                    <button type="button" class="color-dot" data-color="#2563eb" style="--dot:#2563eb" title="蓝色"></button>
+                    <button type="button" class="color-dot" data-color="#6f6b65" style="--dot:#6f6b65" title="灰色"></button>
+                    <span class="dock-divider"></span>
+                    <button type="button" data-format="bold"><strong>B</strong></button>
+                    <button type="button" data-format="underline"><u>U</u></button>
+                    <button type="button" data-format="italic"><em>I</em></button>
+                </div>
+            </details>
+            <section class="edit-ai-panel" aria-label="AI补充">
+                <div>
+                    <strong>AI补充</strong>
+                    <p>基于当前标题和内容生成相关补充条目，勾选后添加到自由补充。</p>
+                </div>
+                <button type="button" class="btn btn-secondary" id="btn-ai-supplement">
+                    <i data-lucide="sparkles"></i>
+                    生成补充
+                </button>
+                <div class="ai-supplement-results hidden" id="ai-supplement-results"></div>
+            </section>
+            <div class="selection-mark-toolbar hidden" id="selection-mark-toolbar">
+                <button type="button" class="mark-color-dot mark-red" data-mark-color="red" aria-label="红色标记"></button>
+                <button type="button" class="mark-color-dot mark-yellow" data-mark-color="yellow" aria-label="黄色标记"></button>
+                <button type="button" class="mark-color-dot mark-green" data-mark-color="green" aria-label="绿色标记"></button>
+                <button type="button" class="mark-color-dot mark-blue" data-mark-color="blue" aria-label="蓝色标记"></button>
+                <button type="button" class="mark-clear" data-mark-color="clear" aria-label="清除颜色">无</button>
+            </div>
+            <div class="precision-mark-picker hidden" id="precision-mark-picker"></div>
         </div>
     `;
 }
 
-function renderEditField(field, label, type, value, card) {
+function renderEditField(field, label, type, value, card, options = {}) {
     const styles = card.customStyles[field] || TEXT_STYLE_DEFAULTS[field];
     const controlId = `edit-${field}`;
-    const editFontSize = '16px';
-    const control = type === 'input'
-        ? `<input id="${controlId}" data-style-field="${field}" value="${escapeHTML(value)}" style="font-size:${editFontSize};color:${escapeHTML(styles.color)};font-weight:${escapeHTML(styles.fontWeight || '400')};font-style:${escapeHTML(styles.fontStyle || 'normal')};text-decoration:${escapeHTML(styles.textDecoration || 'none')}">`
-        : `<textarea id="${controlId}" data-style-field="${field}" style="font-size:${editFontSize};color:${escapeHTML(styles.color)};font-weight:${escapeHTML(styles.fontWeight || '400')};font-style:${escapeHTML(styles.fontStyle || 'normal')};text-decoration:${escapeHTML(styles.textDecoration || 'none')}">${escapeHTML(value)}</textarea>`;
+    const editFontSize = styles.fontSize || '16px';
+    const placeholder = options.placeholder || '';
+    const cleanValue = stripInlineMarks(value);
+    const control = `<div id="${controlId}" class="edit-rich-field ${type === 'textarea' ? 'is-multiline' : ''}" data-style-field="${field}" data-placeholder="${escapeHTML(placeholder)}" contenteditable="true" role="textbox" style="font-size:${editFontSize};color:${escapeHTML(styles.color)};font-weight:${escapeHTML(styles.fontWeight || '400')};font-style:${escapeHTML(styles.fontStyle || 'normal')};text-decoration:${escapeHTML(styles.textDecoration || 'none')}">${renderEditableHtml(cleanValue, pendingEditMarks[field])}</div>`;
 
     return `
         <label class="editable-field" data-field="${field}">
             <span>${escapeHTML(label)}</span>
             ${control}
+            ${options.helper ? `<small>${escapeHTML(options.helper)}</small>` : ''}
         </label>
     `;
 }
@@ -1755,9 +2768,19 @@ function bindEditStyleControls() {
     els.modalBody.querySelectorAll('[data-style-field]').forEach((input) => {
         input.addEventListener('focus', () => {
             activeEditField = input.dataset.styleField;
+            updateSelectionMarkToolbar(input);
         });
         input.addEventListener('click', () => {
             activeEditField = input.dataset.styleField;
+            updateSelectionMarkToolbar(input);
+        });
+        input.addEventListener('mouseup', () => updateSelectionMarkToolbar(input));
+        input.addEventListener('touchend', () => window.setTimeout(() => updateSelectionMarkToolbar(input), 80));
+        input.addEventListener('keyup', () => updateSelectionMarkToolbar(input));
+        input.addEventListener('select', () => updateSelectionMarkToolbar(input));
+        input.addEventListener('input', () => {
+            pendingEditMarks[input.dataset.styleField] = getEditableMarkRanges(input);
+            updateSelectionMarkToolbar(input);
         });
     });
 
@@ -1783,13 +2806,421 @@ function bindEditStyleControls() {
             input.focus();
         });
     });
+
+    const aiButton = document.getElementById('btn-ai-supplement');
+    if (aiButton) {
+        aiButton.addEventListener('click', handleAiSupplement);
+    }
+
+    const markToolbar = document.getElementById('selection-mark-toolbar');
+    if (markToolbar) {
+        markToolbar.addEventListener('click', (event) => {
+            const button = event.target.closest('[data-mark-color]');
+            if (!button) return;
+            markSelectedEditText(button.dataset.markColor || 'red');
+        });
+    }
+
+    const precisionPicker = document.getElementById('precision-mark-picker');
+    if (precisionPicker) {
+        precisionPicker.addEventListener('click', handlePrecisionMarkPick);
+        precisionPicker.addEventListener('pointerdown', handlePrecisionMarkPointerDown);
+        precisionPicker.addEventListener('pointermove', handlePrecisionMarkPointerMove);
+        precisionPicker.addEventListener('pointerup', handlePrecisionMarkPointerUp);
+        precisionPicker.addEventListener('pointercancel', closePrecisionMarkDrag);
+    }
+
+    const aiResults = document.getElementById('ai-supplement-results');
+    if (aiResults) {
+        aiResults.addEventListener('click', (event) => {
+            const addButton = event.target.closest('[data-ai-add-selected]');
+            if (!addButton) return;
+            addSelectedAiSupplements();
+        });
+    }
+}
+
+function updateSelectionMarkToolbar(input = null) {
+    const toolbar = document.getElementById('selection-mark-toolbar');
+    if (!toolbar) return;
+    const activeInput = input || els.modalBody.querySelector(`[data-style-field="${activeEditField}"]`);
+    if (!activeInput) {
+        toolbar.classList.add('hidden');
+        return;
+    }
+
+    const field = activeInput.closest('.editable-field');
+    if (!field) {
+        toolbar.classList.add('hidden');
+        return;
+    }
+
+    const offsets = getSelectionOffsetsWithin(activeInput);
+    const hasSelection = offsets && !offsets.collapsed;
+    const isTouchLayout = window.matchMedia('(max-width: 768px), (pointer: coarse)').matches;
+    if (!hasSelection && !isTouchLayout) {
+        toolbar.classList.add('hidden');
+        return;
+    }
+
+    const selectionRect = getSelectionRectWithin(activeInput);
+    const fieldRect = field.getBoundingClientRect();
+    const bodyRect = els.modalBody.getBoundingClientRect();
+    const toolbarLeft = selectionRect
+        ? selectionRect.left - bodyRect.left + Math.max(0, (selectionRect.width - 156) / 2)
+        : fieldRect.left - bodyRect.left + 12;
+    const toolbarTop = selectionRect
+        ? selectionRect.top - bodyRect.top - 44 + els.modalBody.scrollTop
+        : fieldRect.top - bodyRect.top - 42 + els.modalBody.scrollTop;
+    toolbar.style.left = `${Math.max(8, Math.min(toolbarLeft, bodyRect.width - 178))}px`;
+    toolbar.style.top = `${Math.max(8, toolbarTop)}px`;
+    toolbar.classList.toggle('is-line-mode', !hasSelection);
+    toolbar.classList.remove('hidden');
+}
+
+function closePrecisionMarkPicker() {
+    const picker = document.getElementById('precision-mark-picker');
+    if (picker) {
+        picker.classList.add('hidden');
+        picker.innerHTML = '';
+    }
+    precisionMarkState = null;
+    precisionMarkDrag = null;
+}
+
+function openPrecisionMarkPicker(input, color, cursorIndex) {
+    const picker = document.getElementById('precision-mark-picker');
+    if (!picker) return;
+    const value = getEditablePlainText(input);
+    const lineStart = value.lastIndexOf('\n', Math.max(0, cursorIndex - 1)) + 1;
+    const nextBreak = value.indexOf('\n', cursorIndex);
+    const lineEnd = nextBreak === -1 ? value.length : nextBreak;
+    const lineText = value.slice(lineStart, lineEnd);
+    if (!lineText.trim()) return;
+
+    precisionMarkState = {
+        field: activeEditField,
+        color,
+        lineStart,
+        lineEnd,
+        startIndex: null
+    };
+
+    const field = input.closest('.editable-field');
+    const fieldRect = field.getBoundingClientRect();
+    const bodyRect = els.modalBody.getBoundingClientRect();
+    picker.style.left = `${Math.max(12, fieldRect.left - bodyRect.left + 12)}px`;
+    picker.style.top = `${fieldRect.bottom - bodyRect.top + 48 + els.modalBody.scrollTop}px`;
+    picker.innerHTML = `
+        <div class="precision-mark-head">
+            <span>按住滑动选择文字</span>
+            <button type="button" data-precision-cancel>取消</button>
+        </div>
+        <div class="precision-mark-chars">
+            ${[...lineText].map((char, index) => `
+                <button type="button" data-precision-index="${index}">${escapeHTML(char === ' ' ? '·' : char)}</button>
+            `).join('')}
+        </div>
+    `;
+    picker.classList.remove('hidden');
+}
+
+function handlePrecisionMarkPick(event) {
+    const picker = document.getElementById('precision-mark-picker');
+    if (!picker || !precisionMarkState) return;
+    if (event.target.closest('[data-precision-cancel]')) {
+        closePrecisionMarkPicker();
+        return;
+    }
+    if (precisionMarkDrag?.moved) return;
+
+    const charButton = event.target.closest('[data-precision-index]');
+    if (!charButton) return;
+    const index = Number(charButton.dataset.precisionIndex);
+    if (Number.isNaN(index)) return;
+
+    if (precisionMarkState.startIndex === null) {
+        precisionMarkState.startIndex = index;
+        picker.querySelectorAll('[data-precision-index]').forEach((button) => button.classList.remove('is-start'));
+        charButton.classList.add('is-start');
+        return;
+    }
+
+    const input = els.modalBody.querySelector(`[data-style-field="${precisionMarkState.field}"]`);
+    if (!input) {
+        closePrecisionMarkPicker();
+        return;
+    }
+
+    const startOffset = Math.min(precisionMarkState.startIndex, index);
+    const endOffset = Math.max(precisionMarkState.startIndex, index) + 1;
+    const start = precisionMarkState.lineStart + startOffset;
+    const end = precisionMarkState.lineStart + endOffset;
+    input.focus();
+    setEditableSelection(input, start, end);
+    markSelectedEditText(precisionMarkState.color);
+    closePrecisionMarkPicker();
+}
+
+function getPrecisionButtonFromPoint(event) {
+    const element = document.elementFromPoint(event.clientX, event.clientY);
+    return element?.closest?.('[data-precision-index]');
+}
+
+function paintPrecisionRange(startIndex, endIndex) {
+    const picker = document.getElementById('precision-mark-picker');
+    if (!picker) return;
+    const start = Math.min(startIndex, endIndex);
+    const end = Math.max(startIndex, endIndex);
+    picker.querySelectorAll('[data-precision-index]').forEach((button) => {
+        const index = Number(button.dataset.precisionIndex);
+        button.classList.toggle('is-selected', index >= start && index <= end);
+        button.classList.toggle('is-start', index === startIndex);
+    });
+}
+
+function handlePrecisionMarkPointerDown(event) {
+    const charButton = event.target.closest('[data-precision-index]');
+    if (!charButton || !precisionMarkState) return;
+    event.preventDefault();
+    const index = Number(charButton.dataset.precisionIndex);
+    precisionMarkDrag = {
+        pointerId: event.pointerId,
+        startIndex: index,
+        endIndex: index,
+        moved: false
+    };
+    charButton.setPointerCapture?.(event.pointerId);
+    paintPrecisionRange(index, index);
+}
+
+function handlePrecisionMarkPointerMove(event) {
+    if (!precisionMarkDrag || precisionMarkDrag.pointerId !== event.pointerId) return;
+    const charButton = getPrecisionButtonFromPoint(event);
+    if (!charButton) return;
+    const index = Number(charButton.dataset.precisionIndex);
+    if (Number.isNaN(index)) return;
+    if (index !== precisionMarkDrag.endIndex) precisionMarkDrag.moved = true;
+    precisionMarkDrag.endIndex = index;
+    paintPrecisionRange(precisionMarkDrag.startIndex, precisionMarkDrag.endIndex);
+}
+
+function handlePrecisionMarkPointerUp(event) {
+    if (!precisionMarkDrag || precisionMarkDrag.pointerId !== event.pointerId || !precisionMarkState) return;
+    const drag = precisionMarkDrag;
+    precisionMarkDrag = null;
+    const input = els.modalBody.querySelector(`[data-style-field="${precisionMarkState.field}"]`);
+    if (!input) {
+        closePrecisionMarkPicker();
+        return;
+    }
+
+    const startOffset = Math.min(drag.startIndex, drag.endIndex);
+    const endOffset = Math.max(drag.startIndex, drag.endIndex) + 1;
+    const start = precisionMarkState.lineStart + startOffset;
+    const end = precisionMarkState.lineStart + endOffset;
+    input.focus();
+    setEditableSelection(input, start, end);
+    markSelectedEditText(precisionMarkState.color);
+    closePrecisionMarkPicker();
+}
+
+function closePrecisionMarkDrag() {
+    precisionMarkDrag = null;
+}
+
+function markSelectedEditText(color = 'red') {
+    const input = els.modalBody.querySelector(`[data-style-field="${activeEditField}"]`);
+    if (!input) return;
+    const offsets = getSelectionOffsetsWithin(input);
+    if (!offsets) return;
+    let start = offsets.start;
+    let end = offsets.end;
+
+    if (start === end) {
+        const isTouchLayout = window.matchMedia('(max-width: 768px), (pointer: coarse)').matches;
+        if (isTouchLayout && color !== 'clear') {
+            openPrecisionMarkPicker(input, color, start);
+            return;
+        }
+        const value = getEditablePlainText(input);
+        const lineStart = value.lastIndexOf('\n', Math.max(0, start - 1)) + 1;
+        const nextBreak = value.indexOf('\n', start);
+        const lineEnd = nextBreak === -1 ? value.length : nextBreak;
+        start = lineStart;
+        end = lineEnd;
+        if (start === end) {
+            input.focus();
+            return;
+        }
+    }
+
+    const field = input.dataset.styleField;
+    pendingEditMarks[field] = normalizeMarkRanges(pendingEditMarks[field]);
+
+    if (color === 'clear') {
+        pendingEditMarks[field] = pendingEditMarks[field].flatMap((range) => {
+            if (range.end <= start || range.start >= end) return [range];
+            const kept = [];
+            if (range.start < start) {
+                kept.push({ ...range, end: start });
+            }
+            if (range.end > end) {
+                kept.push({ ...range, start: end });
+            }
+            return kept;
+        });
+    } else {
+        pendingEditMarks[field] = [
+            ...pendingEditMarks[field].filter((range) => range.end <= start || range.start >= end),
+            { start, end, color }
+        ].sort((a, b) => a.start - b.start);
+    }
+
+    rerenderEditableField(input, start, end);
+    input.focus();
+    updateSelectionMarkToolbar(input);
+}
+
+function getCurrentEditDraft() {
+    return {
+        title: getEditablePlainText(document.getElementById('edit-title')).trim() || '',
+        category: document.getElementById('edit-category')?.value.trim() || '',
+        core_point: getEditablePlainText(document.getElementById('edit-core_point')).trim() || '',
+        key_points: getEditablePlainText(document.getElementById('edit-key_points')).trim() || '',
+        note: getEditablePlainText(document.getElementById('edit-note')).trim() || ''
+    };
+}
+
+function buildAiSupplementPrompt(draft) {
+    return `你是知识卡片编辑助手。请基于用户正在编辑的卡片，补充高度相关、简洁、有用的背景知识或延伸理解。
+
+要求：
+1. 只输出 JSON 对象，不要 Markdown。
+2. 不要编造具体平台检索结果、链接或实时新闻。
+3. 补充内容必须与卡片主题高度相关，避免泛泛而谈。
+4. 输出 4-6 条，每条 25-60 个中文字符。
+5. 每条包含 title 和 content。
+
+返回格式：
+{"supplements":[{"title":"补充标题","content":"补充内容"}]}
+
+当前卡片：
+标题：${draft.title}
+领域：${draft.category}
+主要观点：${draft.core_point}
+关键要点：${draft.key_points}
+已有补充：${draft.note}`;
+}
+
+function normalizeAiSupplements(result) {
+    const rawList = Array.isArray(result?.supplements)
+        ? result.supplements
+        : Array.isArray(result?.items)
+            ? result.items
+            : [];
+    return rawList
+        .map((item, index) => {
+            if (typeof item === 'string') {
+                return { title: `补充 ${index + 1}`, content: item.trim() };
+            }
+            return {
+                title: String(item?.title || item?.heading || `补充 ${index + 1}`).trim(),
+                content: String(item?.content || item?.text || item?.summary || '').trim()
+            };
+        })
+        .filter((item) => item.content)
+        .slice(0, 6);
+}
+
+async function handleAiSupplement() {
+    const button = document.getElementById('btn-ai-supplement');
+    const resultsEl = document.getElementById('ai-supplement-results');
+    if (!button || !resultsEl) return;
+
+    const draft = getCurrentEditDraft();
+    if (!draft.title && !draft.core_point && !draft.key_points) {
+        resultsEl.classList.remove('hidden');
+        resultsEl.innerHTML = '<p class="ai-supplement-empty">先写一点标题或主要观点，AI 才能补充得更准。</p>';
+        return;
+    }
+
+    button.disabled = true;
+    button.innerHTML = '<span class="spinner mini-spinner"></span> 生成中';
+    resultsEl.classList.remove('hidden');
+    resultsEl.innerHTML = '<p class="ai-supplement-empty">正在整理相关补充...</p>';
+
+    try {
+        const result = await callDeepSeek(buildAiSupplementPrompt(draft));
+        const supplements = normalizeAiSupplements(result);
+        if (!supplements.length) {
+            throw new Error('AI 没有返回可用补充条目');
+        }
+        resultsEl.innerHTML = `
+            <div class="ai-supplement-list">
+                ${supplements.map((item, index) => `
+                    <label class="ai-supplement-item">
+                        <input type="checkbox" data-ai-supplement-item value="${index}">
+                        <span>
+                            <strong>${escapeHTML(item.title)}</strong>
+                            <em>${escapeHTML(item.content)}</em>
+                        </span>
+                    </label>
+                `).join('')}
+            </div>
+            <button type="button" class="btn btn-primary ai-supplement-add" data-ai-add-selected>添加选中</button>
+        `;
+        resultsEl.dataset.supplements = JSON.stringify(supplements);
+    } catch (error) {
+        resultsEl.innerHTML = `<p class="ai-supplement-empty">生成失败：${escapeHTML(error.message || '请稍后重试')}</p>`;
+    } finally {
+        button.disabled = false;
+        button.innerHTML = '<i data-lucide="sparkles"></i> 重新生成';
+        refreshIcons();
+    }
+}
+
+function addSelectedAiSupplements() {
+    const resultsEl = document.getElementById('ai-supplement-results');
+    const noteInput = document.getElementById('edit-note');
+    if (!resultsEl || !noteInput) return;
+
+    const supplements = JSON.parse(resultsEl.dataset.supplements || '[]');
+    const selected = [...resultsEl.querySelectorAll('[data-ai-supplement-item]:checked')]
+        .map((input) => supplements[Number(input.value)])
+        .filter(Boolean);
+
+    if (!selected.length) {
+        resultsEl.querySelector('.ai-supplement-add')?.classList.add('shake-once');
+        window.setTimeout(() => resultsEl.querySelector('.ai-supplement-add')?.classList.remove('shake-once'), 320);
+        return;
+    }
+
+    const addition = selected
+        .map((item) => `- ${item.title}：${item.content}`)
+        .join('\n');
+    const existing = getEditablePlainText(noteInput).trim();
+    noteInput.innerHTML = escapeHTML(existing
+        ? `${existing}\n\nAI补充：\n${addition}`
+        : `AI补充：\n${addition}`).replace(/\n/g, '<br>');
+    noteInput.dispatchEvent(new Event('input'));
+    noteInput.focus();
+
+    resultsEl.dataset.supplements = '';
+    resultsEl.innerHTML = '';
+    resultsEl.classList.add('hidden');
+    const aiButton = document.getElementById('btn-ai-supplement');
+    if (aiButton) {
+        aiButton.innerHTML = '<i data-lucide="sparkles"></i> 重新生成';
+    }
+    refreshIcons();
 }
 
 function renderNoteSection(note, card = null) {
     return `
         <div class="detail-section note-section">
             <h4>记事本内容</h4>
-            <p ${card ? styleAttr(card, 'note') : ''}>${escapeHTML(note)}</p>
+            <p ${card ? styleAttr(card, 'note') : ''}>${card ? renderMarkedField(card, 'note') : renderMultilineText(note)}</p>
         </div>
     `;
 }
@@ -1798,14 +3229,24 @@ function saveEditedCard() {
     const card = cards.find(c => c.id === currentViewCardId);
     if (!card) return;
     normalizeCard(card);
-    card.title = document.getElementById('edit-title').value.trim() || card.title;
-    card.category = document.getElementById('edit-category').value.trim() || '未分类';
-    card.core_point = document.getElementById('edit-core_point').value.trim();
-    card.key_points = document.getElementById('edit-key_points').value.split('\n').map(p => p.trim()).filter(Boolean);
-    card.quote = document.getElementById('edit-quote').value.trim();
-    card.action = document.getElementById('edit-action').value.trim();
-    card.note = document.getElementById('edit-note').value.trim();
+    const titleInput = document.getElementById('edit-title');
+    const coreInput = document.getElementById('edit-core_point');
+    const pointsInput = document.getElementById('edit-key_points');
+    const noteInput = document.getElementById('edit-note');
+    card.title = stripInlineMarks(getEditablePlainText(titleInput)).trim() || card.title;
+    card.category = normalizeCategory(document.getElementById('edit-category').value);
+    card.core_point = stripInlineMarks(getEditablePlainText(coreInput)).trim();
+    card.key_points = stripInlineMarks(getEditablePlainText(pointsInput)).split('\n').map(p => p.trim()).filter(Boolean);
+    card.quote = card.quote || '';
+    card.action = card.action || '';
+    card.note = stripInlineMarks(getEditablePlainText(noteInput)).trim();
     card.video_link = document.getElementById('edit-link').value.trim();
+    card.marks = {
+        title: getEditableMarkRanges(titleInput).filter((range) => range.end <= card.title.length),
+        core_point: getEditableMarkRanges(coreInput).filter((range) => range.end <= card.core_point.length),
+        key_points: getEditableMarkRanges(pointsInput).filter((range) => range.end <= getEditablePlainText(pointsInput).length),
+        note: getEditableMarkRanges(noteInput).filter((range) => range.end <= card.note.length)
+    };
     els.modalBody.querySelectorAll('[data-style-field]').forEach((input) => {
         const field = input.dataset.styleField;
         card.customStyles[field] = {
@@ -1817,6 +3258,7 @@ function saveEditedCard() {
         };
     });
     saveCards();
+    renderCategoryNav();
     renderCards();
     renderDailyReview();
     openCardDetail(card, false);
@@ -1851,16 +3293,21 @@ function handleGetCard() {
         includeCardInTodayReviewSession(sourceCard.id);
         playGetAnimation();
     }
+    renderCategoryNav();
     renderCards();
     renderDailyReview();
     openCardDetail(sourceCard, false);
 }
 
 function playGetAnimation() {
-    const target = document.querySelector('[data-mobile-action="review"]');
+    const target = els.reviewHeading || document.querySelector('[data-mobile-action="home"]') || els.btnAddTodo;
     const start = els.btnAddTodo.getBoundingClientRect();
     const end = target?.getBoundingClientRect();
-    if (!end) return;
+    if (!end) {
+        els.btnAddTodo.classList.add('get-pulse');
+        window.setTimeout(() => els.btnAddTodo.classList.remove('get-pulse'), 520);
+        return;
+    }
     const flyer = document.createElement('div');
     flyer.className = 'get-flyer';
     flyer.textContent = '⭐';
@@ -1980,8 +3427,8 @@ function createLocalCard(text, videoLink = '') {
         core_point: firstSentence.slice(0, 80),
         key_points: keyPoints.map((point) => point.slice(0, 80)),
         quote: firstSentence.slice(0, 60),
-        action: '复盘这条内容，并补充自己的理解。',
-        category: '学习',
+        action: '',
+        category: DEFAULT_CATEGORY,
         video_link: videoLink,
         is_local: true,
         isRead: false,
@@ -2009,6 +3456,67 @@ function cleanSharedText(text) {
         .trim();
 }
 
+async function callExtractCard(input) {
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 130000);
+    let res;
+    try {
+        res = await fetch(EXTRACT_CARD_API_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ input }),
+            signal: controller.signal
+        });
+    } finally {
+        window.clearTimeout(timeoutId);
+    }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+        throw new Error(data.error || `内容提取接口返回 ${res.status}`);
+    }
+    return data;
+}
+
+function showNeedsTextMessage(extracted) {
+    alert([
+        extracted?.reason || '暂时无法只通过链接提取视频完整文字。',
+        '',
+        '请粘贴视频字幕、转录文本或较完整的视频文案后再生成。'
+    ].join('\n'));
+}
+
+function countCjkChars(text) {
+    const matches = String(text || '').match(/[\u4e00-\u9fff]/g);
+    return matches ? matches.length : 0;
+}
+
+function hasEnoughVideoContent(text) {
+    const content = String(text || '').trim();
+    if (!content) return false;
+    return content.length >= MIN_VIDEO_CONTENT_CHARS || countCjkChars(content) >= MIN_VIDEO_CONTENT_CJK_CHARS;
+}
+
+function getContentQualityWarning(originalText, cleanedText, linkMatches) {
+    const hasLink = linkMatches.length > 0;
+    const hasEnoughContent = hasEnoughVideoContent(cleanedText);
+    if (hasEnoughContent) return '';
+
+    if (hasLink) {
+        return [
+            '当前只检测到视频链接或很短的分享文案，暂时不能生成正式卡片。',
+            '',
+            '为了避免卡片内容和视频实际内容不符，请粘贴视频字幕、转录文本或较完整的视频文案后再生成。',
+            '后续会接入抖音链接解析/转写能力，实现只贴链接自动提取。'
+        ].join('\n');
+    }
+
+    return [
+        '当前输入内容太短，可能不足以准确提炼视频观点。',
+        '',
+        '请粘贴更完整的视频文案、字幕或转录文本后再生成。'
+    ].join('\n');
+}
+
 // 生成卡片
 async function handleGenerateCard() {
     console.log('[Zcard] handleGenerateCard 被调用');
@@ -2027,54 +3535,95 @@ async function handleGenerateCard() {
     els.btnGenerate.disabled = true;
     console.log('[Zcard] loading 显示完毕');
 
+    const originalInput = text;
     const cleanedInput = cleanSharedText(text);
-    if (cleanedInput) {
-        text = cleanedInput;
-    }
-    console.log('[Zcard] 文本清洗完毕, 长度:', text.length);
+    console.log('[Zcard] 文本清洗完毕, 长度:', cleanedInput.length);
 
-    els.loadingIndicator.querySelector('span').textContent = 'AI 正在为您提炼知识...';
+    els.loadingIndicator.querySelector('span').textContent = linkMatches.length ? '正在提取视频文字...' : 'AI 正在为您提炼知识...';
 
     let prompt = "";
-    
-    // 如果文本中包含多个链接以及对应说明文字，我们将其视为多源融合输入
-    if (linkMatches.length > 1) {
-        // 多视频融合 Prompt
-        prompt = `你是一个知识整合专家。用户提供了多个信息源（视频或文章）的内容，请你将它们融合成一张结构化的知识卡片。严格按JSON格式返回，不要返回任何其他文字，不要使用markdown格式。
+    let result;
+    try {
+        console.log('[Zcard] 尝试 extract-card 接口...');
+        const extracted = await callExtractCard(originalInput);
+        if (extracted.status === 'needs_text') {
+            showNeedsTextMessage(extracted);
+            return;
+        }
+        if (extracted.status === 'needs_ai_key') {
+            alert([
+                extracted.reason || '已提取到视频文字，但缺少 AI Key，暂时无法生成卡片。',
+                '',
+                '请在 .env 中填写 DEEPSEEK_API_KEY 后重启服务。'
+            ].join('\n'));
+            return;
+        }
+        if (extracted.status === 'ok' && extracted.card) {
+            result = {
+                ...extracted.card,
+                source_type: extracted.source_type,
+                source_text_length: extracted.source_text_length
+            };
+        }
+    } catch (error) {
+        console.warn('[Zcard] extract-card 接口不可用，回退到前端总结链路:', error.message);
+        if (error.message && error.message.includes('缺少 DEEPSEEK_API_KEY')) {
+            alert(error.message || '内容提取接口处理失败');
+            return;
+        }
+    }
+
+    if (!result) {
+        const contentWarning = getContentQualityWarning(originalInput, cleanedInput, linkMatches);
+        if (contentWarning) {
+            alert(contentWarning);
+            return;
+        }
+        text = cleanedInput;
+
+        // 如果文本中包含多个链接以及对应说明文字，我们将其视为多源融合输入
+        if (linkMatches.length > 1) {
+            // 多视频融合 Prompt
+            prompt = `你是一个知识整合专家。用户提供了多个信息源（视频或文章）的内容，请你将它们融合成一张结构化的知识卡片。严格按JSON格式返回，不要返回任何其他文字，不要使用markdown格式。
 
 返回格式：
-{"title": "综合提炼的标题（10字以内）", "core_point": "综合核心观点（一句话总结这几个信息源的共性）", "key_points": ["观点一：xxx（来自信息源1）", "观点二：xxx（来自信息源2）", "观点三：xxx（综合分析）"], "quote": "最精彩的一句金句", "action": "行动建议", "category": "生活"}
+{"title": "综合提炼的标题（10字以内）", "core_point": "主要观点（一句话总结这几个信息源的共性）", "key_points": [{"heading":"小标题","content":"详细说明"}], "quote": "", "action": "", "category": "${DEFAULT_CATEGORY}"}
 
 字段要求：
 1. 所有字段必须使用中文。
-2. category 必须且只能是以下之一：生活、职场、学习、娱乐、财经、健康、科技。
-3. 如果内容只有链接、缺少正文，请根据链接附近的分享文案提炼，不要说无法访问链接。
+2. key_points 返回 3-5 个对象，每个对象包含 heading 和 content。
+3. quote 和 action 固定返回空字符串。
+4. category 固定返回“${DEFAULT_CATEGORY}”。
+5. 只能基于用户提供的正文总结，不能根据标题、链接或缺失信息进行推测。
 
 视频内容如下：
 ${text}`;
-    } else {
-        // 单视频 Prompt
-        prompt = `你是一个视频内容分析专家。请对以下抖音视频内容进行结构化总结，严格按JSON格式返回，不要返回任何其他文字，不要使用markdown格式：
+        } else {
+            // 单视频 Prompt
+            prompt = `你是一个视频内容分析专家。请对以下抖音视频内容进行结构化总结，严格按JSON格式返回，不要返回任何其他文字，不要使用markdown格式：
 
-{"title": "标题（10字以内）", "core_point": "核心观点（一句话）", "key_points": ["要点1", "要点2", "要点3"], "quote": "金句", "action": "行动建议", "category": "学习"}
+{"title": "标题（10字以内）", "core_point": "主要观点（一句话）", "key_points": [{"heading":"小标题","content":"详细说明"}], "quote": "", "action": "", "category": "${DEFAULT_CATEGORY}"}
 
 字段要求：
 1. 所有字段必须使用中文。
-2. category 必须且只能是以下之一：生活、职场、学习、娱乐、财经、健康、科技。
-3. 如果内容只有链接、缺少正文，请根据链接附近的分享文案提炼，不要说无法访问链接。
+2. key_points 返回 3-5 个对象，每个对象包含 heading 和 content。
+3. quote 和 action 固定返回空字符串。
+4. category 固定返回“${DEFAULT_CATEGORY}”。
+5. 只能基于用户提供的正文总结，不能根据标题、链接或缺失信息进行推测。
 
 视频内容：
 ${text}`;
-    }
+        }
 
-    let result;
-    try {
-        console.log('[Zcard] 开始调用 API...');
-        result = await callDeepSeek(prompt);
-        console.log('[Zcard] API 调用成功:', JSON.stringify(result).substring(0, 80));
-    } catch (error) {
-        console.warn('[Zcard] AI 调用失败，已使用本地演示模式生成卡片。', error);
-        result = createLocalCard(text, videoLink);
+        try {
+            els.loadingIndicator.querySelector('span').textContent = 'AI 正在为您提炼知识...';
+            console.log('[Zcard] 开始调用 API...');
+            result = await callDeepSeek(prompt);
+            console.log('[Zcard] API 调用成功:', JSON.stringify(result).substring(0, 80));
+        } catch (error) {
+            console.warn('[Zcard] AI 调用失败，已使用本地演示模式生成卡片。', error);
+            result = createLocalCard(text, videoLink);
+        }
     }
         
     const newCard = {
@@ -2090,11 +3639,10 @@ ${text}`;
         isFavorite: false,
         customStyles: {}
     };
-    
+
     cards.unshift(newCard);
     saveCards();
-    includeCardInTodayReviewSession(newCard.id);
-    
+
     els.videoInput.value = '';
     currentView = 'home';
     currentCategory = '全部';
@@ -2105,10 +3653,7 @@ ${text}`;
     document.querySelectorAll('[data-mobile-action]').forEach((item) => {
         item.classList.toggle('active', item.dataset.mobileAction === 'home');
     });
-    document.querySelectorAll('.category-tag').forEach(el => {
-        el.classList.toggle('active', el.dataset.category === '全部');
-    });
-    els.searchInput.placeholder = '在【全部】中搜索...';
+    renderCategoryNav();
     const composeSection = document.getElementById('compose-section');
     if (composeSection) {
         composeSection.style.display = '';
@@ -2130,13 +3675,14 @@ ${text}`;
 }
 
 function normalizeIntegratedResult(result, selectedCardsData, category) {
+    const fallbackCategory = normalizeCategory(category);
     const normalized = {
         title: String(result?.title || '').trim(),
         core_point: String(result?.core_point || result?.summary || '').trim(),
-        key_points: safeList(result?.key_points).map((item) => String(item).trim()).filter(Boolean),
-        quote: String(result?.quote || result?.conclusion || '').trim(),
-        action: String(result?.action || '').trim(),
-        category: normalizeCategory(result?.category || category),
+        key_points: safeList(result?.key_points).map((item, index) => normalizeKeyPoint(item, index)).filter((item) => item.heading && item.content),
+        quote: '',
+        action: '',
+        category: normalizeCategory(result?.category || fallbackCategory),
         sourceCards: selectedCardsData.map((card) => card.id)
     };
 
@@ -2161,28 +3707,36 @@ function createLocalIntegratedCard(selectedCardsData, category) {
                 '7年累计亏损82亿元，被正式申请破产',
                 '折射影视行业整体寒冬'
             ],
-            quote: '7年亏了82亿元，这些坑踩得太致命。',
-            action: '企业应聚焦核心业务，加强风险管控；投资者需关注影视行业系统性风险。',
-            category: '财经',
+            quote: '',
+            action: '',
+            category: normalizeCategory(category),
             sourceCards: [...REQUIRED_DEMO_CARD_IDS]
         };
     }
 
-    const mergedPoints = [...new Set(selectedCardsData.flatMap((card) => safeList(card.key_points)).filter(Boolean))].slice(0, 5);
+    const mergedPoints = [...new Map(selectedCardsData
+        .flatMap((card) => safeList(card.key_points).map((point, index) => normalizeKeyPoint(point, index)))
+        .filter((point) => point.heading && point.content)
+        .map((point) => [pointHeading(point, 0), point])).values()]
+        .slice(0, 5);
     while (mergedPoints.length < 4) {
-        mergedPoints.push(['补充事件背景，串起前因后果', '合并重复信息，提炼关键节点', '从结果反推问题根源，形成完整认知'][mergedPoints.length - 1] || '提炼共同信息，形成一张完整卡片');
+        const fallbackHeadings = ['背景脉络', '共同结论', '差异视角', '复盘价值'];
+        const fallbackContents = ['补充事件背景，串起前因后果。', '合并重复信息，提炼关键节点。', '从不同卡片中保留差异视角，避免只剩单一结论。', '把碎片信息整理成一张后续可复用的完整卡片。'];
+        mergedPoints.push({
+            heading: fallbackHeadings[mergedPoints.length] || '整合价值',
+            content: fallbackContents[mergedPoints.length] || '提炼共同信息，形成一张完整卡片。'
+        });
     }
-    const quotes = selectedCardsData.map((card) => card.quote).filter(Boolean);
-    const actions = [...new Set(selectedCardsData.map((card) => card.action).filter(Boolean))];
     const corePoints = [...new Set(selectedCardsData.map((card) => card.core_point || card.summary).filter(Boolean))];
+    const categories = [...new Set(selectedCardsData.map((card) => normalizeCategory(card.category)).filter((item) => item !== DEFAULT_CATEGORY))];
 
     return {
-        title: `${selectedCardsData[0]?.title?.slice(0, 6) || '事件'}整合`,
-        core_point: corePoints.join('；').slice(0, 70) || '这组卡片反映的是同一话题下的多维信息，需要合并理解。',
+        title: `${selectedCardsData[0]?.title?.slice(0, 8) || '知识'}整合`,
+        core_point: corePoints.join('；').slice(0, 120) || '这组卡片反映的是同一主题下的多维信息，需要合并理解。',
         key_points: mergedPoints,
-        quote: quotes.length >= 2 ? `${quotes[0]}，${quotes[1]}`.slice(0, 36) : (quotes[0] || '把碎片信息串起来，才能看清全貌。'),
-        action: actions[0] || '把整合后的信息再复盘一遍，确认核心结论与行动方向。',
-        category,
+        quote: '',
+        action: '',
+        category: normalizeCategory(category || categories[0] || DEFAULT_CATEGORY),
         sourceCards: selectedCardsData.map((card) => card.id)
     };
 }
@@ -2193,6 +3747,7 @@ function isRequiredDemoSelection(selectedCardsData) {
 }
 
 function showIntegratePreview(result, selectedCardsData, category, copyText) {
+    const sourceLinks = [...new Set(selectedCardsData.map((card) => sourceVideoUrl(card.video_link)).filter(Boolean))];
     pendingIntegrateResult = {
         result,
         selectedIds: new Set(selectedCards),
@@ -2206,10 +3761,14 @@ function showIntegratePreview(result, selectedCardsData, category, copyText) {
             <span class="card-badge">${escapeHTML(result.category || category)}</span>
             <h3>${escapeHTML(result.title || '无标题')}</h3>
             <p>${escapeHTML(result.core_point || '')}</p>
-            ${safeList(result.key_points).length ? `<ul>${safeList(result.key_points).map((point) => `<li>${escapeHTML(point)}</li>`).join('')}</ul>` : ''}
-            ${result.quote ? `<p><strong>金句：</strong>${escapeHTML(result.quote)}</p>` : ''}
-            ${result.action ? `<p><strong>行动建议：</strong>${escapeHTML(result.action)}</p>` : ''}
+            ${safeList(result.key_points).length ? `<ul>${safeList(result.key_points).map((point, index) => `<li>${escapeHTML(pointPlainText(point, index))}</li>`).join('')}</ul>` : ''}
         </div>
+        ${sourceLinks.length ? `
+            <div class="preview-source-links">
+                <h4>原视频链接</h4>
+                ${sourceLinks.map((link, index) => `<a href="${escapeHTML(link)}" target="_blank" rel="noopener">来源${index + 1}：${escapeHTML(link)}</a>`).join('')}
+            </div>
+        ` : ''}
         <div class="source-cards-info">${escapeHTML(copyText)}</div>
     `;
     els.integratePreviewModal.classList.remove('hidden');
@@ -2223,12 +3782,7 @@ async function handleIntegrateCards() {
     const selectedCardsData = cards
         .filter((card) => selectedCards.has(card.id))
         .map((card) => normalizeCard(card));
-    const categories = [...new Set(selectedCardsData.map((card) => card.category).filter(Boolean))];
-    const targetCategory = categories[0] || '学习';
-    if (categories.length > 1) {
-        alert('请勾选同一领域的卡片后再整合。');
-        return;
-    }
+    const targetCategory = MERGED_CATEGORY;
 
     if (isRequiredDemoSelection(selectedCardsData)) {
         const result = createLocalIntegratedCard(selectedCardsData, targetCategory);
@@ -2238,27 +3792,29 @@ async function handleIntegrateCards() {
 
     const combinedContent = selectedCardsData.map((card, index) => `卡片${index + 1}
 标题：${card.title}
+分类：${card.category || DEFAULT_CATEGORY}
 核心观点：${card.core_point || card.summary || ''}
-关键要点：${safeList(card.key_points).join('；')}
-金句：${card.quote || ''}
-行动建议：${card.action || ''}`).join('\n\n');
+关键要点：${safeList(card.key_points).map((point, idx) => pointPlainText(point, idx)).join('；')}
+原视频链接：${sourceVideoUrl(card.video_link) || '无'}`).join('\n\n');
 
     els.loadingIndicator.querySelector('span').textContent = 'AI 正在为您整合多重视角...';
     els.loadingIndicator.classList.remove('hidden');
 
-    const prompt = `你是一个知识整合专家。以下是同一领域、同一事件/话题的多张知识卡片，请整合成一张更完整的大卡片。
+    const prompt = `你是一个知识整合专家。以下是用户自由选择的多张知识卡片，可能来自不同领域。请整合成一张更完整、更有概括力的大卡片。
 
 要求：
 1. 只返回 JSON，不要返回任何其他文字，不要使用 markdown。
-2. 标题控制在 14 字以内，适合做一张完整知识卡片的标题。
-3. core_point 用 1 句话总结整体核心观点。
-4. key_points 返回 4 到 5 条，去重、合并重复信息，每条不超过 28 字。
-5. quote 把原卡片里的强记忆点合并成一句更有记忆点的话。
-6. action 给出 1 条清晰的行动建议。
-7. category 固定返回 "${targetCategory}"。
+2. 标题控制在 8-14 个字，能概括所有来源卡片的共同主题。
+3. core_point 用 70-120 字，总结这些卡片合并后的核心观点。
+4. key_points 返回 4 到 6 条，每条是对象 {"heading":"小标题","content":"详细说明"}。
+5. key_points 要去重、归纳、合并，不要简单拼接原卡片。
+6. heading 必须是有内容的概括性小标题，例如“内在稳定”“外部奖惩”“决策边界”，不要写“要点1”“要点2”。
+7. 每条 content 控制在 60-120 字，适合作为知识卡片正文。
+8. quote 和 action 固定返回空字符串。
+9. category 固定返回“${MERGED_CATEGORY}”。
 
 返回格式：
-{"title":"整合标题","core_point":"核心观点","key_points":["要点1","要点2","要点3","要点4"],"quote":"金句","action":"行动建议","category":"${targetCategory}"}
+{"title":"整合标题","core_point":"主要观点","key_points":[{"heading":"小标题","content":"详细说明"}],"quote":"","action":"","category":"${MERGED_CATEGORY}"}
 
 卡片内容：
 ${combinedContent}`;
@@ -2282,16 +3838,19 @@ ${combinedContent}`;
 function confirmIntegrate() {
     if (!pendingIntegrateResult) return;
     const { result, selectedIds, category } = pendingIntegrateResult;
+    const normalizedPoints = safeList(result.key_points)
+        .map((point, index) => normalizeKeyPoint(point, index))
+        .filter((point) => point.heading && point.content);
 
     const integratedCard = {
         id: 'int_' + Date.now(),
         title: result.title,
         core_point: result.core_point,
         summary: result.core_point,
-        key_points: safeList(result.key_points),
+        key_points: normalizedPoints,
         quote: result.quote || '',
         action: result.action || '',
-        category,
+        category: MERGED_CATEGORY,
         created_at: new Date().toISOString().split('T')[0],
         is_todo: false,
         isIntegrated: true,
@@ -2302,7 +3861,8 @@ function confirmIntegrate() {
         isDemo: false,
         customStyles: {},
         sourceCards: cards.filter((card) => selectedIds.has(card.id)).map((card) => card.id),
-        source_links: cards.filter((card) => selectedIds.has(card.id)).map((card) => card.video_link).filter(Boolean)
+        source_titles: cards.filter((card) => selectedIds.has(card.id)).map((card) => card.title).filter(Boolean),
+        source_links: cards.filter((card) => selectedIds.has(card.id)).map((card) => sourceVideoUrl(card.video_link)).filter(Boolean)
     };
 
     cards = cards.filter((card) => !selectedIds.has(card.id));
@@ -2312,6 +3872,7 @@ function confirmIntegrate() {
     selectedCards.clear();
     pendingIntegrateResult = null;
     updateBatchActions();
+    renderCategoryNav();
     renderCards();
     renderDailyReview();
     els.integratePreviewModal.classList.add('hidden');
@@ -2355,7 +3916,7 @@ function renderCurrentFlashcard() {
     els.fcCategory.textContent = card.category;
     els.fcTitle.textContent = card.title;
     els.fcCore.textContent = card.core_point;
-    els.fcPoints.innerHTML = safeList(card.key_points).map(p => `<li>${escapeHTML(p)}</li>`).join('');
+    els.fcPoints.innerHTML = safeList(card.key_points).map((point, index) => `<li>${escapeHTML(pointPlainText(point, index))}</li>`).join('');
 }
 
 function nextFlashcard(remembered) {
@@ -2411,8 +3972,7 @@ function measureExportCardHeight(ctx, card, cardWidth, styles) {
     ctx.font = styles.pointFont;
     const pointLines = safeList(card.key_points).flatMap((point) => wrapCanvasText(ctx, `• ${point}`, innerWidth - 8));
     ctx.font = styles.noteFont;
-    const quoteLines = card.quote ? wrapCanvasText(ctx, `金句：${card.quote}`, innerWidth) : [];
-    const actionLines = card.action ? wrapCanvasText(ctx, `行动建议：${card.action}`, innerWidth) : [];
+    const sourceLines = card.video_link ? wrapCanvasText(ctx, `原视频：${card.video_link}`, innerWidth) : [];
 
     return (
         styles.cardPadding +
@@ -2422,8 +3982,7 @@ function measureExportCardHeight(ctx, card, cardWidth, styles) {
         12 +
         coreLines.length * styles.coreLineHeight +
         (pointLines.length ? 18 + pointLines.length * styles.pointLineHeight : 0) +
-        (quoteLines.length ? 18 + quoteLines.length * styles.noteLineHeight : 0) +
-        (actionLines.length ? 14 + actionLines.length * styles.noteLineHeight : 0) +
+        (sourceLines.length ? 18 + sourceLines.length * styles.noteLineHeight : 0) +
         styles.cardPadding
     );
 }
@@ -2510,7 +4069,7 @@ function buildExportCanvas(selectedCardsData) {
         let cursorY = y + styles.cardPadding;
         const cursorX = padding + styles.cardPadding;
         const innerWidth = cardWidth - styles.cardPadding * 2;
-        const pillText = card.isIntegrated || card.is_integrated ? `整合 · ${card.category || '未分类'}` : (card.category || '未分类');
+        const pillText = card.isIntegrated || card.is_integrated ? MERGED_CATEGORY : (card.category || DEFAULT_CATEGORY);
         const pillWidth = Math.max(120, Math.ceil(measureCtx.measureText(pillText).width) + 28);
 
         drawRoundedRect(ctx, cursorX, cursorY, pillWidth, styles.pillHeight, 999);
@@ -2531,7 +4090,7 @@ function buildExportCanvas(selectedCardsData) {
         cursorY = drawExportTextBlock(ctx, coreLines, cursorX, cursorY + 4, styles.coreLineHeight, '#334155');
 
         ctx.font = styles.pointFont;
-        const pointTexts = safeList(card.key_points).map((point) => `• ${point}`);
+        const pointTexts = safeList(card.key_points).map((point, index) => `• ${pointPlainText(point, index)}`);
         if (pointTexts.length) {
             cursorY += 14;
             pointTexts.forEach((pointText) => {
@@ -2541,13 +4100,9 @@ function buildExportCanvas(selectedCardsData) {
         }
 
         ctx.font = styles.noteFont;
-        if (card.quote) {
-            const quoteLines = wrapCanvasText(ctx, `金句：${card.quote}`, innerWidth);
-            cursorY = drawExportTextBlock(ctx, quoteLines, cursorX, cursorY + 16, styles.noteLineHeight, '#7c2d12');
-        }
-        if (card.action) {
-            const actionLines = wrapCanvasText(ctx, `行动建议：${card.action}`, innerWidth);
-            cursorY = drawExportTextBlock(ctx, actionLines, cursorX, cursorY + 12, styles.noteLineHeight, '#1d4ed8');
+        if (card.video_link) {
+            const sourceLines = wrapCanvasText(ctx, `原视频：${card.video_link}`, innerWidth);
+            cursorY = drawExportTextBlock(ctx, sourceLines, cursorX, cursorY + 16, styles.noteLineHeight, '#1d4ed8');
         }
 
         y += cardHeight + gap;

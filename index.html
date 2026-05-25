@@ -34,11 +34,14 @@
                 <div class="review-panel">
                     <div class="review-panel-head">
                         <div>
-                            <div class="review-kicker">随机复习</div>
-                            <h2 id="review-heading">今日待复习</h2>
-                            <p id="review-subtext" class="review-subtext">系统会从全部卡片中随机抽取今日复习队列。</p>
+                            <div class="review-kicker">每日回顾</div>
+                            <p id="review-subtext" class="review-subtext">连续打卡 灰阶回顾</p>
                         </div>
-                        <div class="streak-widget">
+                        <div class="review-panel-note">连续打卡 灰阶回顾</div>
+                    </div>
+
+                    <div class="review-compact-row">
+                        <button type="button" class="streak-widget" id="review-streak-button">
                             <div id="review-streak-ring" class="streak-ring">
                                 <div class="streak-ring-inner">
                                     <strong id="review-streak-days">0</strong>
@@ -49,7 +52,13 @@
                                 <span>连续打卡</span>
                                 <small id="review-streak-label">灰阶起步</small>
                             </div>
-                        </div>
+                        </button>
+
+                        <button type="button" id="review-heading" class="review-main-entry">
+                            <strong>今日回顾</strong>
+                            <span id="review-main-entry-text">0天，今日回顾剩余0张</span>
+                            <small>点击开始今日回顾</small>
+                        </button>
                     </div>
 
                     <div class="review-toolbar">
@@ -59,8 +68,7 @@
                             <button type="button" class="review-count-btn" data-review-count="5">5张</button>
                         </div>
                         <div class="review-summary">
-                            <span id="review-queue-label">待复习 0 张</span>
-                            <span id="review-power-total">知识力 0</span>
+                            <button type="button" id="review-queue-label" class="review-entry-text">0天，今日回顾剩余0张</button>
                         </div>
                     </div>
 
@@ -83,7 +91,7 @@
                                     <span id="review-back-meta">今日队列</span>
                                 </div>
                                 <h3 id="review-back-title">开始今日复习</h3>
-                                <p id="review-back-core">先完成左滑右滑，再进入固定模板答题。</p>
+                                <p id="review-back-core">先完成左滑右滑，再进入理解题答题。</p>
                                 <div class="review-actions">
                                     <button id="btn-review-do" class="btn btn-primary">开始复习</button>
                                     <button id="btn-review-skip" class="btn btn-secondary">跳过这张</button>
@@ -97,11 +105,11 @@
             <!-- 左右滑动复习弹窗 -->
             <div id="swipe-review-modal" class="swipe-modal hidden">
                 <div class="swipe-modal-glass"></div>
-                <button class="swipe-close" id="btn-close-swipe-review"><i data-lucide="x"></i></button>
+                <button type="button" class="swipe-close" id="btn-close-swipe-review"><i data-lucide="x"></i></button>
 
                 <div class="swipe-wrap">
                     <div class="swipe-head">
-                        <span class="swipe-head-title">知识复习</span>
+                        <span class="swipe-head-title">每日回顾</span>
                         <span class="swipe-head-count" id="swipe-review-progress">1 / 5</span>
                     </div>
 
@@ -122,15 +130,15 @@
                         </div>
                     </div>
                     <div class="swipe-actions-bar" id="swipe-actions-bar">
-                        <button class="swipe-action-btn swipe-action-understood" id="btn-swipe-understood" type="button">左滑也可 · 理解</button>
-                        <button class="swipe-action-btn swipe-action-confused" id="btn-swipe-confused" type="button">右滑也可 · 没理解</button>
+                        <button class="swipe-action-btn swipe-action-understood" id="btn-swipe-understood" type="button">理解</button>
+                        <button class="swipe-action-btn swipe-action-confused" id="btn-swipe-confused" type="button">没理解</button>
                     </div>
-                    <div class="swipe-gesture-hint" id="swipe-gesture-hint">可直接左右拖动卡片；如果当前设备不方便滑动，也可以点击下方按钮继续。</div>
+                    <div class="swipe-gesture-hint" id="swipe-gesture-hint">左滑理解，右滑没理解；也可以点按钮继续。</div>
 
                     <div class="swipe-done hidden" id="swipe-done">
                         <div class="swipe-done-icon">✓</div>
                         <div class="swipe-done-text">滑动复习完成</div>
-                        <div class="swipe-done-sub">正在进入答题复习</div>
+                        <div class="swipe-done-sub">点击开始答题，检验是否真正理解。</div>
                         <div class="swipe-done-stats">
                             <div class="swipe-stat">
                                 <span class="swipe-stat-num" id="swipe-stat-understood">0</span>
@@ -142,7 +150,7 @@
                                 <span class="swipe-stat-label">没理解</span>
                             </div>
                         </div>
-                        <button class="swipe-done-btn" id="btn-swipe-done-close">立即答题</button>
+                        <button class="swipe-done-btn" id="btn-swipe-done-close">点击开始答题</button>
                     </div>
 
                     <div class="quiz-stage hidden" id="quiz-stage">
@@ -154,7 +162,7 @@
                             <span class="quiz-progress" id="quiz-progress">1 / 5</span>
                         </div>
                         <div class="quiz-body">
-                            <div class="quiz-question">这张卡片的核心观点是什么？</div>
+                            <div class="quiz-question" id="quiz-question">以下哪项最符合这张卡片的主要观点？</div>
                             <div class="quiz-options" id="quiz-options"></div>
                             <div class="quiz-feedback hidden" id="quiz-feedback"></div>
                             <div class="quiz-status-row">
@@ -192,7 +200,7 @@
             <!-- 输入区 -->
             <section class="input-section" id="compose-section">
                 <div class="input-wrapper">
-                    <textarea id="video-input" placeholder="粘贴抖音视频文案或链接到这里..." rows="3"></textarea>
+                    <textarea id="video-input" placeholder="粘贴抖音视频文案、字幕或转录文本；仅链接会先提示补充内容" rows="3"></textarea>
                     <button id="btn-generate" class="btn btn-primary">
                         <i data-lucide="sparkles"></i> 生成知识卡片
                     </button>
@@ -205,16 +213,7 @@
 
             <!-- 工具栏：分类与搜索 -->
             <section class="toolbar">
-                <div class="categories" id="category-list">
-                    <button class="category-tag active" data-category="全部">全部</button>
-                    <button class="category-tag" data-category="生活">生活</button>
-                    <button class="category-tag" data-category="职场">职场</button>
-                    <button class="category-tag" data-category="学习">学习</button>
-                    <button class="category-tag" data-category="娱乐">娱乐</button>
-                    <button class="category-tag" data-category="财经">财经</button>
-                    <button class="category-tag" data-category="健康">健康</button>
-                    <button class="category-tag" data-category="科技">科技</button>
-                </div>
+                <div class="categories" id="category-list"></div>
 
                 <div class="search-actions">
                     <div class="search-box">
@@ -239,6 +238,12 @@
                     </button>
                     <button id="btn-cancel-select" class="btn btn-text" type="button">取消选择</button>
                 </div>
+            </section>
+
+            <!-- 知识宇宙 -->
+            <section id="knowledge-graph-section" class="knowledge-graph-section hidden">
+                <div id="knowledge-universe" class="knowledge-universe"></div>
+                <div id="knowledge-graph-cards" class="knowledge-graph-cards"></div>
             </section>
 
             <!-- 卡片展示区 -->
@@ -268,13 +273,17 @@
                 <i data-lucide="star"></i>
                 <span>收藏</span>
             </button>
+            <button class="bottom-nav-item" data-mobile-action="graph">
+                <i data-lucide="network"></i>
+                <span>图谱</span>
+            </button>
         </nav>
     </div>
 
     <!-- 搜索结果弹窗 -->
     <div id="search-modal" class="modal hidden">
         <div class="modal-content search-modal-content">
-            <button class="close-btn" id="btn-close-search"><i data-lucide="x"></i></button>
+            <button type="button" class="close-btn" id="btn-close-search"><i data-lucide="x"></i></button>
             <div class="search-result-head">
                 <span class="detail-badge">搜索结果</span>
                 <h2 id="search-result-title">搜索结果</h2>
@@ -297,7 +306,7 @@
     <!-- 卡片详情弹窗 -->
     <div id="card-modal" class="modal hidden">
         <div class="modal-content">
-            <button class="close-btn" id="btn-close-modal"><i data-lucide="x"></i></button>
+            <button type="button" class="close-btn" id="btn-close-modal"><i data-lucide="x"></i></button>
             <div id="modal-card-body" class="card-detail-body">
                 <!-- 详情内容动态填充 -->
             </div>
@@ -322,7 +331,7 @@
     <!-- 记事本弹窗 -->
     <div id="notebook-modal" class="modal hidden">
         <div class="modal-content notebook-content">
-            <button class="close-btn" id="btn-close-notebook"><i data-lucide="x"></i></button>
+            <button type="button" class="close-btn" id="btn-close-notebook"><i data-lucide="x"></i></button>
             <span class="detail-badge">记事本</span>
             <h2>二次编辑</h2>
             <textarea id="notebook-input" class="notebook-input" placeholder="写下你的理解、改写、行动计划..."></textarea>
@@ -335,7 +344,7 @@
     <!-- 闪卡复习弹窗 -->
     <div id="flashcard-modal" class="modal hidden">
         <div class="modal-content flashcard-container">
-            <button class="close-btn" id="btn-close-flashcard"><i data-lucide="x"></i></button>
+            <button type="button" class="close-btn" id="btn-close-flashcard"><i data-lucide="x"></i></button>
             <div class="flashcard-header">
                 <h3>知识复习</h3>
                 <span id="flashcard-progress" class="progress">1 / 5</span>
@@ -367,7 +376,7 @@
     <!-- 设置弹窗 -->
     <div id="settings-modal" class="modal hidden">
         <div class="modal-content settings-content">
-            <button class="close-btn" id="btn-close-settings"><i data-lucide="x"></i></button>
+            <button type="button" class="close-btn" id="btn-close-settings"><i data-lucide="x"></i></button>
             <h2>设置</h2>
             <form class="settings-form" autocomplete="off" onsubmit="return false;">
                 <label for="api-key-input">DeepSeek API Key</label>
@@ -380,10 +389,34 @@
         </div>
     </div>
 
+    <!-- 每日回顾统计弹窗 -->
+    <div id="review-stats-modal" class="modal hidden">
+        <div class="modal-content review-stats-content">
+            <button type="button" class="close-btn" id="btn-close-review-stats"><i data-lucide="x"></i></button>
+            <span class="detail-badge">每日回顾</span>
+            <h2>回顾记录</h2>
+            <div class="review-stats-grid">
+                <div class="review-stat-card">
+                    <strong id="review-stats-streak">0</strong>
+                    <span>连续天数</span>
+                </div>
+                <div class="review-stat-card">
+                    <strong id="review-stats-total">0</strong>
+                    <span>累计打卡</span>
+                </div>
+                <div class="review-stat-card">
+                    <strong id="review-stats-power">0</strong>
+                    <span>知识力</span>
+                </div>
+            </div>
+            <p id="review-stats-status" class="review-stats-status">今日未完成</p>
+        </div>
+    </div>
+
     <!-- 整合预览弹窗 -->
     <div id="integrate-preview-modal" class="modal hidden">
         <div class="modal-content integrate-preview-content">
-            <button class="close-btn" id="btn-close-integrate-preview"><i data-lucide="x"></i></button>
+            <button type="button" class="close-btn" id="btn-close-integrate-preview"><i data-lucide="x"></i></button>
             <span class="detail-badge">整合预览</span>
             <h2 id="integrate-preview-title">整合后的卡片</h2>
             <div id="integrate-preview-body" class="integrate-preview-body">
