@@ -2869,9 +2869,10 @@ function updateSelectionMarkToolbar(input = null) {
     const toolbarLeft = selectionRect
         ? selectionRect.left - bodyRect.left + Math.max(0, (selectionRect.width - 156) / 2)
         : fieldRect.left - bodyRect.left + 12;
+    // 放在选区下方，避免与系统剪切/复制菜单重叠
     const toolbarTop = selectionRect
-        ? selectionRect.top - bodyRect.top - 44 + els.modalBody.scrollTop
-        : fieldRect.top - bodyRect.top - 42 + els.modalBody.scrollTop;
+        ? selectionRect.bottom - bodyRect.top + 8 + els.modalBody.scrollTop
+        : fieldRect.bottom - bodyRect.top + 6 + els.modalBody.scrollTop;
     toolbar.style.left = `${Math.max(8, Math.min(toolbarLeft, bodyRect.width - 178))}px`;
     toolbar.style.top = `${Math.max(8, toolbarTop)}px`;
     toolbar.classList.toggle('is-line-mode', !hasSelection);
