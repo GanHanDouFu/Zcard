@@ -2699,7 +2699,7 @@ function renderCardEditForm(card) {
             </div>
             <div class="edit-field-grid">
                 ${renderEditField('title', '标题', 'input', card.title, card, { placeholder: '给这张卡片起一个清楚的标题' })}
-                <label class="editable-field" data-field="category">
+                <div class="editable-field" data-field="category">
                     <span>领域</span>
                     <div class="category-select-wrap" id="edit-category-wrap">
                         <button type="button" class="category-select-trigger" id="edit-category-trigger">
@@ -2715,7 +2715,7 @@ function renderCardEditForm(card) {
                         </div>
                     </div>
                     <input id="edit-category" type="hidden" value="${escapeHTML(card.category || '')}">
-                </label>
+                </div>
             </div>
             ${renderEditField('core_point', '主要观点', 'textarea', card.core_point || card.summary || '', card, { placeholder: '用一句话写清这张卡最重要的观点' })}
             ${renderEditField('key_points', '关键要点', 'textarea', safeList(card.key_points).map((point, index) => pointPlainText(point, index)).join('\n'), card, { placeholder: '每行一个要点', helper: '保存后会自动整理成要点列表。' })}
@@ -2793,6 +2793,7 @@ function bindEditStyleControls() {
         });
         categoryDropdown.addEventListener('click', (event) => {
             event.stopPropagation();
+            event.preventDefault();
             const option = event.target.closest('.category-option');
             if (!option) return;
             categoryDropdown.querySelectorAll('.category-option').forEach((c) => c.classList.remove('is-active'));
