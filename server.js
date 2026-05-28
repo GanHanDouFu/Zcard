@@ -25,7 +25,7 @@ const PORT = Number(process.env.PORT || 8080);
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || '';
 const VIDEO_TEXT_API_URL = process.env.VIDEO_TEXT_API_URL || '';
 const VIDEO_TEXT_API_KEY = process.env.VIDEO_TEXT_API_KEY || '';
-const VIDEO_TEXT_API_METHOD = (process.env.VIDEO_TEXT_API_METHOD || 'POST').toUpperCase();
+const VIDEO_TEXT_API_METHOD = (process.env.VIDEO_TEXT_API_METHOD || 'POST').trim().toUpperCase();
 const VIDEO_TEXT_API_AUTH_HEADER = process.env.VIDEO_TEXT_API_AUTH_HEADER || 'Authorization';
 const VIDEO_TEXT_API_AUTH_PREFIX = process.env.VIDEO_TEXT_API_AUTH_PREFIX || 'Bearer ';
 const VIDEO_TEXT_API_URL_FIELD = process.env.VIDEO_TEXT_API_URL_FIELD || 'url';
@@ -215,7 +215,7 @@ function buildVideoTextHeaders() {
     };
 }
 
-function postJson(url, payload, headers = {}, timeoutMs = 30000) {
+function postJson(url, payload, headers = {}, timeoutMs = 30000, redirectCount = 0) {
     return new Promise((resolve, reject) => {
         const target = new URL(url);
         const body = JSON.stringify(payload);
@@ -231,6 +231,16 @@ function postJson(url, payload, headers = {}, timeoutMs = 30000) {
                 'Content-Length': Buffer.byteLength(body)
             }
         }, (upstreamRes) => {
+            if ([301, 302, 303, 307, 308].includes(upstreamRes.statusCode) && upstreamRes.headers.location && redirectCount < 3) {
+                const nextTarget = new URL(upstreamRes.headers.location, target.href);
+                if (!nextTarget.search && target.search) nextTarget.search = target.search;
+                const nextUrl = nextTarget.href;
+                upstreamRes.resume();
+                const nextMethod = upstreamRes.statusCode === 303 ? getJson : postJson;
+                nextMethod(nextUrl, payload, headers, timeoutMs, redirectCount + 1).then(resolve, reject);
+                return;
+            }
+
             let raw = '';
             upstreamRes.on('data', (chunk) => { raw += chunk; });
             upstreamRes.on('end', () => {
@@ -274,7 +284,9 @@ function getJson(url, query = {}, headers = {}, timeoutMs = 30000, redirectCount
             headers
         }, (upstreamRes) => {
             if ([301, 302, 303, 307, 308].includes(upstreamRes.statusCode) && upstreamRes.headers.location && redirectCount < 3) {
-                const nextUrl = new URL(upstreamRes.headers.location, target.href).href;
+                const nextTarget = new URL(upstreamRes.headers.location, target.href);
+                if (!nextTarget.search && target.search) nextTarget.search = target.search;
+                const nextUrl = nextTarget.href;
                 upstreamRes.resume();
                 getJson(nextUrl, {}, headers, timeoutMs, redirectCount + 1).then(resolve, reject);
                 return;
