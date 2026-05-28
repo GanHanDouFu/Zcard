@@ -2709,7 +2709,8 @@ function renderCardEditForm(card) {
                         <div class="category-dropdown hidden" id="edit-category-dropdown">
                             ${categoryChips}
                             <div class="category-dropdown-custom">
-                                <input id="edit-category-custom" type="text" placeholder="自定义分类" maxlength="6">
+                                <input id="edit-category-custom" type="text" placeholder="输入自定义分类" maxlength="6">
+                                <button type="button" class="category-custom-btn" id="btn-confirm-custom-category">确定</button>
                             </div>
                         </div>
                     </div>
@@ -2803,6 +2804,7 @@ function bindEditStyleControls() {
     }
 
     const customCategoryInput = document.getElementById('edit-category-custom');
+    const customCategoryBtn = document.getElementById('btn-confirm-custom-category');
     if (customCategoryInput) {
         customCategoryInput.addEventListener('click', (e) => e.stopPropagation());
         const confirmCustomCategory = () => {
@@ -2817,6 +2819,9 @@ function bindEditStyleControls() {
         customCategoryInput.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') { e.preventDefault(); confirmCustomCategory(); }
         });
+        if (customCategoryBtn) {
+            customCategoryBtn.addEventListener('click', (e) => { e.stopPropagation(); confirmCustomCategory(); });
+        }
     }
 
     // 点击空白区域关闭下拉和颜色工具栏
