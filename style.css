@@ -99,13 +99,13 @@ a:hover {
 }
 
 .btn-primary {
-    background-color: var(--color-primary);
+    background-color: var(--color-accent);
     color: #ffffff;
     box-shadow: var(--shadow-sm);
 }
 
 .btn-primary:hover {
-    background-color: var(--color-primary-hover);
+    background-color: #c4684b;
     transform: translateY(-1px);
 }
 
@@ -2219,9 +2219,9 @@ textarea::placeholder {
 }
 
 #btn-add-todo.is-got {
-    background-color: #3b8256;
-    border-color: #3b8256;
-    color: #ffffff;
+    background-color: var(--color-secondary);
+    border-color: var(--color-border);
+    color: var(--color-accent);
 }
 
 #btn-add-todo.get-pulse {
@@ -2597,54 +2597,88 @@ textarea::placeholder {
     line-height: 1.7;
 }
 
-.category-chips {
+.category-select-wrap {
+    position: relative;
+}
+
+.category-select-trigger {
     display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    padding: 4px 0;
-}
-
-.category-chip {
-    display: inline-flex;
     align-items: center;
-    padding: 6px 14px;
-    border: 1px solid rgba(229, 227, 219, 0.9);
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.8);
-    color: var(--color-text-regular);
-    font-size: 13px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.15s ease;
-}
-
-.category-chip.is-active {
-    border-color: var(--color-primary, #2563eb);
-    background: rgba(37, 99, 235, 0.08);
-    color: var(--color-primary, #2563eb);
-    font-weight: 600;
-}
-
-.category-chip-add {
-    border-style: dashed;
-    color: var(--color-text-muted);
-    font-size: 12px;
-}
-
-.category-custom-input {
-    margin-top: 8px;
-    padding: 8px 12px;
-    border: 1px solid rgba(229, 227, 219, 0.9);
-    border-radius: 8px;
-    font-size: 14px;
+    justify-content: space-between;
     width: 100%;
-    box-sizing: border-box;
-    outline: none;
+    padding: 10px 14px;
+    border: 1px solid var(--color-border);
+    border-radius: 10px;
+    background: var(--color-secondary);
+    color: var(--color-text-regular);
+    font-size: 14px;
+    cursor: pointer;
     transition: border-color 0.15s ease;
 }
 
-.category-custom-input:focus {
-    border-color: var(--color-primary, #2563eb);
+.category-select-trigger:active {
+    border-color: var(--color-accent);
+}
+
+.category-select-trigger svg {
+    width: 16px;
+    height: 16px;
+    color: var(--color-text-muted);
+    transition: transform 0.2s ease;
+}
+
+.category-dropdown {
+    position: absolute;
+    z-index: 20;
+    top: calc(100% + 6px);
+    left: 0;
+    right: 0;
+    padding: 6px;
+    border: 1px solid var(--color-border);
+    border-radius: 12px;
+    background: var(--color-surface);
+    box-shadow: var(--shadow-lg);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.category-option {
+    padding: 7px 14px;
+    border-radius: 999px;
+    background: var(--color-secondary);
+    color: var(--color-text-regular);
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.12s ease;
+}
+
+.category-option.is-active {
+    background: rgba(217, 119, 87, 0.1);
+    color: var(--color-accent);
+    font-weight: 600;
+}
+
+.category-dropdown-custom {
+    width: 100%;
+    margin-top: 4px;
+    padding-top: 6px;
+    border-top: 1px solid var(--color-border);
+}
+
+.category-dropdown-custom input {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    font-size: 13px;
+    outline: none;
+    box-sizing: border-box;
+    transition: border-color 0.15s ease;
+}
+
+.category-dropdown-custom input:focus {
+    border-color: var(--color-accent);
 }
 
 .edit-style-panel {
@@ -5315,6 +5349,7 @@ textarea::placeholder {
 
     .review-main-entry:hover {
         background: #fbfaf7;
+
         transform: none;
     }
 

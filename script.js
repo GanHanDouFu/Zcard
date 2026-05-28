@@ -2684,7 +2684,7 @@ function renderCardEditForm(card) {
     const presetCategories = ['生活', '职场', '学习', '娱乐', '财经', '健康', '科技'];
     const allCategories = [...new Set([...presetCategories, ...getUserCategories().filter((c) => c !== '全部' && c !== '整合' && c !== '默认')])];
     const categoryChips = allCategories
-        .map((c) => `<button type="button" class="category-chip${c === (card.category || '') ? ' is-active' : ''}" data-category="${escapeHTML(c)}">${escapeHTML(c)}</button>`)
+        .map((c) => `<div class="category-option${c === (card.category || '') ? ' is-active' : ''}" data-category="${escapeHTML(c)}">${escapeHTML(c)}</div>`)
         .join('');
     return `
         <div class="edit-form">
@@ -2697,11 +2697,18 @@ function renderCardEditForm(card) {
                 ${renderEditField('title', '标题', 'input', card.title, card, { placeholder: '给这张卡片起一个清楚的标题' })}
                 <label class="editable-field" data-field="category">
                     <span>领域</span>
-                    <div class="category-chips" id="edit-category-chips">
-                        ${categoryChips}
-                        <button type="button" class="category-chip category-chip-add" id="btn-add-category">+ 自定义</button>
+                    <div class="category-select-wrap" id="edit-category-wrap">
+                        <button type="button" class="category-select-trigger" id="edit-category-trigger">
+                            <span id="edit-category-display">${escapeHTML(card.category || '选择领域')}</span>
+                            <i data-lucide="chevron-down"></i>
+                        </button>
+                        <div class="category-dropdown hidden" id="edit-category-dropdown">
+                            ${categoryChips}
+                            <div class="category-dropdown-custom">
+                                <input id="edit-category-custom" type="text" placeholder="自定义分类" maxlength="6">
+                            </div>
+                        </div>
                     </div>
-                    <input id="edit-category-custom" class="category-custom-input hidden" type="text" placeholder="输入新分类，回车确认" maxlength="6">
                     <input id="edit-category" type="hidden" value="${escapeHTML(card.category || '')}">
                 </label>
             </div>
@@ -2772,21 +2779,20 @@ function bindEditStyleControls() {
         });
     });
 
-    const categoryChipsContainer = document.getElementById('edit-category-chips');
-    if (categoryChipsContainer) {
-        categoryChipsContainer.addEventListener('click', (event) => {
-            const chip = event.target.closest('.category-chip');
-            if (!chip) return;
-            if (chip.id === 'btn-add-category') {
-                const customInput = document.getElementById('edit-category-custom');
-                customInput.classList.remove('hidden');
-                customInput.focus();
-                return;
-            }
-            categoryChipsContainer.querySelectorAll('.category-chip').forEach((c) => c.classList.remove('is-active'));
-            chip.classList.add('is-active');
-            document.getElementById('edit-category').value = chip.dataset.category;
-            document.getElementById('edit-category-custom').classList.add('hidden');
+    const categoryTrigger = document.getElementById('edit-category-trigger');
+    const categoryDropdown = document.getElementById('edit-category-dropdown');
+    if (categoryTrigger && categoryDropdown) {
+        categoryTrigger.addEventListener('click', () => {
+            categoryDropdown.classList.toggle('hidden');
+        });
+        categoryDropdown.addEventListener('click', (event) => {
+            const option = event.target.closest('.category-option');
+            if (!option) return;
+            categoryDropdown.querySelectorAll('.category-option').forEach((c) => c.classList.remove('is-active'));
+            option.classList.add('is-active');
+            document.getElementById('edit-category').value = option.dataset.category;
+            document.getElementById('edit-category-display').textContent = option.dataset.category;
+            categoryDropdown.classList.add('hidden');
         });
     }
 
@@ -2794,27 +2800,16 @@ function bindEditStyleControls() {
     if (customCategoryInput) {
         const confirmCustomCategory = () => {
             const val = customCategoryInput.value.trim();
-            if (!val) { customCategoryInput.classList.add('hidden'); return; }
-            categoryChipsContainer.querySelectorAll('.category-chip').forEach((c) => c.classList.remove('is-active'));
-            const existing = categoryChipsContainer.querySelector(`[data-category="${val}"]`);
-            if (existing) {
-                existing.classList.add('is-active');
-            } else {
-                const newChip = document.createElement('button');
-                newChip.type = 'button';
-                newChip.className = 'category-chip is-active';
-                newChip.dataset.category = val;
-                newChip.textContent = val;
-                categoryChipsContainer.insertBefore(newChip, document.getElementById('btn-add-category'));
-            }
+            if (!val) return;
             document.getElementById('edit-category').value = val;
+            document.getElementById('edit-category-display').textContent = val;
+            categoryDropdown.querySelectorAll('.category-option').forEach((c) => c.classList.remove('is-active'));
+            categoryDropdown.classList.add('hidden');
             customCategoryInput.value = '';
-            customCategoryInput.classList.add('hidden');
         };
         customCategoryInput.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') { e.preventDefault(); confirmCustomCategory(); }
         });
-        customCategoryInput.addEventListener('blur', confirmCustomCategory);
     }
 
     const aiButton = document.getElementById('btn-ai-supplement');
