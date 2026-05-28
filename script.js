@@ -2681,9 +2681,9 @@ function renderCardEditForm(card) {
         key_points: normalizeMarkRanges(card.marks?.key_points),
         note: normalizeMarkRanges(card.marks?.note)
     };
-    const categories = getUserCategories()
-        .filter((category) => category !== '全部')
-        .map((category) => `<option value="${escapeHTML(category)}"></option>`)
+    const categoryChips = getUserCategories()
+        .filter((c) => c !== '全部' && c !== '整合')
+        .map((c) => `<button type="button" class="category-chip${c === (card.category || '') ? ' is-active' : ''}" data-category="${escapeHTML(c)}">${escapeHTML(c)}</button>`)
         .join('');
     return `
         <div class="edit-form">
@@ -2696,8 +2696,10 @@ function renderCardEditForm(card) {
                 ${renderEditField('title', '标题', 'input', card.title, card, { placeholder: '给这张卡片起一个清楚的标题' })}
                 <label class="editable-field" data-field="category">
                     <span>领域</span>
-                    <input id="edit-category" list="edit-category-list" value="${escapeHTML(card.category || '')}" placeholder="选择或输入新分类">
-                    <datalist id="edit-category-list">${categories}</datalist>
+                    <div class="category-chips" id="edit-category-chips">
+                        ${categoryChips}
+                    </div>
+                    <input id="edit-category" type="hidden" value="${escapeHTML(card.category || '')}">
                 </label>
             </div>
             ${renderEditField('core_point', '主要观点', 'textarea', card.core_point || card.summary || '', card, { placeholder: '用一句话写清这张卡最重要的观点' })}
@@ -2707,23 +2709,6 @@ function renderCardEditForm(card) {
                 <span>原视频链接</span>
                 <input id="edit-link" value="${escapeHTML(card.video_link || '')}" placeholder="https://...">
             </label>
-            <details class="edit-style-panel">
-                <summary>文字样式</summary>
-                <div class="edit-dock" aria-label="编辑工具栏">
-                    <button type="button" data-font-size="14px">A-</button>
-                    <button type="button" data-font-size="16px">A</button>
-                    <button type="button" data-font-size="18px">A+</button>
-                    <span class="dock-divider"></span>
-                    <button type="button" class="color-dot" data-color="#1f1f1d" style="--dot:#1f1f1d" title="黑色"></button>
-                    <button type="button" class="color-dot" data-color="#c44f45" style="--dot:#c44f45" title="红色"></button>
-                    <button type="button" class="color-dot" data-color="#2563eb" style="--dot:#2563eb" title="蓝色"></button>
-                    <button type="button" class="color-dot" data-color="#6f6b65" style="--dot:#6f6b65" title="灰色"></button>
-                    <span class="dock-divider"></span>
-                    <button type="button" data-format="bold"><strong>B</strong></button>
-                    <button type="button" data-format="underline"><u>U</u></button>
-                    <button type="button" data-format="italic"><em>I</em></button>
-                </div>
-            </details>
             <section class="edit-ai-panel" aria-label="AI补充">
                 <div>
                     <strong>AI补充</strong>
@@ -2784,28 +2769,16 @@ function bindEditStyleControls() {
         });
     });
 
-    els.modalBody.querySelectorAll('.edit-dock button').forEach((button) => {
-        button.addEventListener('click', () => {
-            const input = els.modalBody.querySelector(`[data-style-field="${activeEditField}"]`);
-            if (!input) return;
-            if (button.dataset.fontSize) {
-                input.style.fontSize = button.dataset.fontSize;
-            }
-            if (button.dataset.color) {
-                input.style.color = button.dataset.color;
-            }
-            if (button.dataset.format === 'bold') {
-                input.style.fontWeight = input.style.fontWeight === '700' ? '400' : '700';
-            }
-            if (button.dataset.format === 'underline') {
-                input.style.textDecoration = input.style.textDecoration.includes('underline') ? 'none' : 'underline';
-            }
-            if (button.dataset.format === 'italic') {
-                input.style.fontStyle = input.style.fontStyle === 'italic' ? 'normal' : 'italic';
-            }
-            input.focus();
+    const categoryChipsContainer = document.getElementById('edit-category-chips');
+    if (categoryChipsContainer) {
+        categoryChipsContainer.addEventListener('click', (event) => {
+            const chip = event.target.closest('.category-chip');
+            if (!chip) return;
+            categoryChipsContainer.querySelectorAll('.category-chip').forEach((c) => c.classList.remove('is-active'));
+            chip.classList.add('is-active');
+            document.getElementById('edit-category').value = chip.dataset.category;
         });
-    });
+    }
 
     const aiButton = document.getElementById('btn-ai-supplement');
     if (aiButton) {
@@ -2857,8 +2830,7 @@ function updateSelectionMarkToolbar(input = null) {
 
     const offsets = getSelectionOffsetsWithin(activeInput);
     const hasSelection = offsets && !offsets.collapsed;
-    const isTouchLayout = window.matchMedia('(max-width: 768px), (pointer: coarse)').matches;
-    if (!hasSelection && !isTouchLayout) {
+    if (!hasSelection) {
         toolbar.classList.add('hidden');
         return;
     }

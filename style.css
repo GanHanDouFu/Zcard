@@ -2597,6 +2597,34 @@ textarea::placeholder {
     line-height: 1.7;
 }
 
+.category-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 4px 0;
+}
+
+.category-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 14px;
+    border: 1px solid rgba(229, 227, 219, 0.9);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.8);
+    color: var(--color-text-regular);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.category-chip.is-active {
+    border-color: var(--color-primary, #2563eb);
+    background: rgba(37, 99, 235, 0.08);
+    color: var(--color-primary, #2563eb);
+    font-weight: 600;
+}
+
 .edit-style-panel {
     border: 1px solid rgba(229, 227, 219, 0.9);
     border-radius: 14px;
