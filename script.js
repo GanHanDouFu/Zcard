@@ -3523,8 +3523,52 @@ async function callExtractCard(input) {
     return data;
 }
 
+function resetGenerateState() {
+    if (els.loadingIndicator) {
+        els.loadingIndicator.classList.add('hidden');
+    }
+    if (els.btnGenerate) {
+        els.btnGenerate.disabled = false;
+    }
+}
+
+function showAppNotice(title, message, buttonText = '知道了') {
+    const oldNotice = document.querySelector('.app-notice');
+    if (oldNotice) oldNotice.remove();
+
+    const notice = document.createElement('div');
+    notice.className = 'app-notice';
+    const lines = String(message || '')
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean);
+
+    notice.innerHTML = `
+        <div class="app-notice-card" role="dialog" aria-modal="true" aria-label="${escapeHTML(title)}">
+            <button type="button" class="app-notice-close" aria-label="关闭">
+                <i data-lucide="x"></i>
+            </button>
+            <div class="app-notice-kicker">提示</div>
+            <h3>${escapeHTML(title)}</h3>
+            <div class="app-notice-body">
+                ${lines.map((line) => `<p>${escapeHTML(line)}</p>`).join('')}
+            </div>
+            <button type="button" class="app-notice-btn">${escapeHTML(buttonText)}</button>
+        </div>
+    `;
+    document.body.appendChild(notice);
+    refreshIcons();
+
+    const closeNotice = () => notice.remove();
+    notice.addEventListener('click', (event) => {
+        if (event.target === notice) closeNotice();
+    });
+    notice.querySelector('.app-notice-close')?.addEventListener('click', closeNotice);
+    notice.querySelector('.app-notice-btn')?.addEventListener('click', closeNotice);
+}
+
 function showNeedsTextMessage(extracted) {
-    alert([
+    showAppNotice('需要补充视频文字', [
         extracted?.reason || '暂时无法只通过链接提取视频完整文字。',
         '',
         '请粘贴视频字幕、转录文本或较完整的视频文案后再生成。'
@@ -3593,11 +3637,13 @@ async function handleGenerateCard() {
         console.log('[Zcard] 尝试 extract-card 接口...');
         const extracted = await callExtractCard(originalInput);
         if (extracted.status === 'needs_text') {
+            resetGenerateState();
             showNeedsTextMessage(extracted);
             return;
         }
         if (extracted.status === 'needs_ai_key') {
-            alert([
+            resetGenerateState();
+            showAppNotice('缺少 AI 配置', [
                 extracted.reason || '已提取到视频文字，但缺少 AI Key，暂时无法生成卡片。',
                 '',
                 '请在 .env 中填写 DEEPSEEK_API_KEY 后重启服务。'
@@ -3614,7 +3660,8 @@ async function handleGenerateCard() {
     } catch (error) {
         console.warn('[Zcard] extract-card 接口不可用，回退到前端总结链路:', error.message);
         if (error.message && error.message.includes('缺少 DEEPSEEK_API_KEY')) {
-            alert(error.message || '内容提取接口处理失败');
+            resetGenerateState();
+            showAppNotice('生成失败', error.message || '内容提取接口处理失败');
             return;
         }
     }
@@ -3622,7 +3669,8 @@ async function handleGenerateCard() {
     if (!result) {
         const contentWarning = getContentQualityWarning(originalInput, cleanedInput, linkMatches);
         if (contentWarning) {
-            alert(contentWarning);
+            resetGenerateState();
+            showAppNotice('需要补充视频文字', contentWarning);
             return;
         }
         text = cleanedInput;

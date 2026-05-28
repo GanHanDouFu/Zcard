@@ -1987,6 +1987,86 @@ textarea::placeholder {
     animation: modalFadeIn 0.2s ease-out;
 }
 
+.app-notice {
+    position: fixed;
+    inset: 0;
+    z-index: 12000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: rgba(18, 17, 15, 0.38);
+    backdrop-filter: blur(7px);
+}
+
+.app-notice-card {
+    position: relative;
+    width: min(420px, 100%);
+    padding: 22px 20px 18px;
+    border: 1px solid rgba(232, 226, 218, 0.92);
+    border-radius: 22px;
+    background: rgba(255, 254, 251, 0.98);
+    box-shadow: 0 28px 70px -40px rgba(48, 39, 31, 0.7);
+    color: var(--color-text-main);
+}
+
+.app-notice-close {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    width: 32px;
+    height: 32px;
+    border: none;
+    border-radius: 50%;
+    background: rgba(245, 243, 238, 0.9);
+    color: var(--color-text-muted);
+    display: grid;
+    place-items: center;
+}
+
+.app-notice-close svg {
+    width: 17px;
+    height: 17px;
+}
+
+.app-notice-kicker {
+    margin-bottom: 8px;
+    color: #c4775d;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.app-notice-card h3 {
+    margin: 0 38px 12px 0;
+    font-size: 20px;
+    line-height: 1.35;
+    letter-spacing: 0;
+}
+
+.app-notice-body {
+    display: grid;
+    gap: 8px;
+    margin-bottom: 18px;
+}
+
+.app-notice-body p {
+    margin: 0;
+    color: var(--color-text-regular);
+    font-size: 15px;
+    line-height: 1.65;
+}
+
+.app-notice-btn {
+    width: 100%;
+    min-height: 44px;
+    border: none;
+    border-radius: 14px;
+    background: #24211d;
+    color: #ffffff;
+    font-size: 15px;
+    font-weight: 700;
+}
+
 @keyframes modalFadeIn {
     from { opacity: 0; transform: translateY(10px); }
     to { opacity: 1; transform: translateY(0); }
