@@ -2681,8 +2681,9 @@ function renderCardEditForm(card) {
         key_points: normalizeMarkRanges(card.marks?.key_points),
         note: normalizeMarkRanges(card.marks?.note)
     };
-    const categoryChips = getUserCategories()
-        .filter((c) => c !== '全部' && c !== '整合')
+    const presetCategories = ['生活', '职场', '学习', '娱乐', '财经', '健康', '科技'];
+    const allCategories = [...new Set([...presetCategories, ...getUserCategories().filter((c) => c !== '全部' && c !== '整合' && c !== '默认')])];
+    const categoryChips = allCategories
         .map((c) => `<button type="button" class="category-chip${c === (card.category || '') ? ' is-active' : ''}" data-category="${escapeHTML(c)}">${escapeHTML(c)}</button>`)
         .join('');
     return `
@@ -2698,7 +2699,9 @@ function renderCardEditForm(card) {
                     <span>领域</span>
                     <div class="category-chips" id="edit-category-chips">
                         ${categoryChips}
+                        <button type="button" class="category-chip category-chip-add" id="btn-add-category">+ 自定义</button>
                     </div>
+                    <input id="edit-category-custom" class="category-custom-input hidden" type="text" placeholder="输入新分类，回车确认" maxlength="6">
                     <input id="edit-category" type="hidden" value="${escapeHTML(card.category || '')}">
                 </label>
             </div>
@@ -2774,10 +2777,44 @@ function bindEditStyleControls() {
         categoryChipsContainer.addEventListener('click', (event) => {
             const chip = event.target.closest('.category-chip');
             if (!chip) return;
+            if (chip.id === 'btn-add-category') {
+                const customInput = document.getElementById('edit-category-custom');
+                customInput.classList.remove('hidden');
+                customInput.focus();
+                return;
+            }
             categoryChipsContainer.querySelectorAll('.category-chip').forEach((c) => c.classList.remove('is-active'));
             chip.classList.add('is-active');
             document.getElementById('edit-category').value = chip.dataset.category;
+            document.getElementById('edit-category-custom').classList.add('hidden');
         });
+    }
+
+    const customCategoryInput = document.getElementById('edit-category-custom');
+    if (customCategoryInput) {
+        const confirmCustomCategory = () => {
+            const val = customCategoryInput.value.trim();
+            if (!val) { customCategoryInput.classList.add('hidden'); return; }
+            categoryChipsContainer.querySelectorAll('.category-chip').forEach((c) => c.classList.remove('is-active'));
+            const existing = categoryChipsContainer.querySelector(`[data-category="${val}"]`);
+            if (existing) {
+                existing.classList.add('is-active');
+            } else {
+                const newChip = document.createElement('button');
+                newChip.type = 'button';
+                newChip.className = 'category-chip is-active';
+                newChip.dataset.category = val;
+                newChip.textContent = val;
+                categoryChipsContainer.insertBefore(newChip, document.getElementById('btn-add-category'));
+            }
+            document.getElementById('edit-category').value = val;
+            customCategoryInput.value = '';
+            customCategoryInput.classList.add('hidden');
+        };
+        customCategoryInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') { e.preventDefault(); confirmCustomCategory(); }
+        });
+        customCategoryInput.addEventListener('blur', confirmCustomCategory);
     }
 
     const aiButton = document.getElementById('btn-ai-supplement');
@@ -3265,11 +3302,24 @@ function handleGetCard() {
     if (nextRead) {
         includeCardInTodayReviewSession(sourceCard.id);
         playGetAnimation();
+        els.btnAddTodo.innerHTML = '<i data-lucide="check-circle"></i> 已读';
+        els.btnAddTodo.classList.add('is-got');
+        if (window.lucide) lucide.createIcons({ nodes: [els.btnAddTodo] });
+        window.setTimeout(() => {
+            closeCardModal();
+            renderCategoryNav();
+            renderCards();
+            renderDailyReview();
+        }, 600);
+    } else {
+        els.btnAddTodo.innerHTML = '<i data-lucide="sparkles"></i> Get it';
+        els.btnAddTodo.classList.remove('is-got');
+        if (window.lucide) lucide.createIcons({ nodes: [els.btnAddTodo] });
+        renderCategoryNav();
+        renderCards();
+        renderDailyReview();
+        openCardDetail(sourceCard, false);
     }
-    renderCategoryNav();
-    renderCards();
-    renderDailyReview();
-    openCardDetail(sourceCard, false);
 }
 
 function playGetAnimation() {

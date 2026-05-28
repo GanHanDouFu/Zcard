@@ -2219,9 +2219,9 @@ textarea::placeholder {
 }
 
 #btn-add-todo.is-got {
-    background-color: var(--color-secondary);
-    border-color: var(--color-border);
-    color: var(--color-text-muted);
+    background-color: #3b8256;
+    border-color: #3b8256;
+    color: #ffffff;
 }
 
 #btn-add-todo.get-pulse {
@@ -2623,6 +2623,28 @@ textarea::placeholder {
     background: rgba(37, 99, 235, 0.08);
     color: var(--color-primary, #2563eb);
     font-weight: 600;
+}
+
+.category-chip-add {
+    border-style: dashed;
+    color: var(--color-text-muted);
+    font-size: 12px;
+}
+
+.category-custom-input {
+    margin-top: 8px;
+    padding: 8px 12px;
+    border: 1px solid rgba(229, 227, 219, 0.9);
+    border-radius: 8px;
+    font-size: 14px;
+    width: 100%;
+    box-sizing: border-box;
+    outline: none;
+    transition: border-color 0.15s ease;
+}
+
+.category-custom-input:focus {
+    border-color: var(--color-primary, #2563eb);
 }
 
 .edit-style-panel {
