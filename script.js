@@ -1314,6 +1314,9 @@ function bindEvents() {
             selectedCards.delete(deletedId);
             if (currentActionCardId === deletedId) currentActionCardId = null;
             if (currentReviewCardId === deletedId) currentReviewCardId = null;
+            if (reviewSession && reviewSession.cardIds) {
+                reviewSession.cardIds = reviewSession.cardIds.filter(id => id !== deletedId);
+            }
             saveCards();
             closeCardModal();
             renderCategoryNav();
@@ -1329,6 +1332,7 @@ function bindEvents() {
         if (card) openCardDetail(card, true);
     });
     els.btnCancelEdit.addEventListener('click', () => {
+        pendingEditMarks = {};
         const card = cards.find(c => c.id === currentViewCardId);
         if (card) openCardDetail(card, false);
     });
@@ -2007,7 +2011,7 @@ function ensureDailyReviewSession(forceNew = false) {
 }
 
 function getReviewQueueIds(session = reviewSession) {
-    return safeList(session.cardIds).filter((id) => !safeList(session.skippedIds).includes(id));
+    return safeList(session.cardIds).filter((id) => !safeList(session.skippedIds).includes(id) && cards.some((c) => c.id === id));
 }
 
 function getCardById(cardId) {
@@ -2782,10 +2786,12 @@ function bindEditStyleControls() {
     const categoryTrigger = document.getElementById('edit-category-trigger');
     const categoryDropdown = document.getElementById('edit-category-dropdown');
     if (categoryTrigger && categoryDropdown) {
-        categoryTrigger.addEventListener('click', () => {
+        categoryTrigger.addEventListener('click', (e) => {
+            e.stopPropagation();
             categoryDropdown.classList.toggle('hidden');
         });
         categoryDropdown.addEventListener('click', (event) => {
+            event.stopPropagation();
             const option = event.target.closest('.category-option');
             if (!option) return;
             categoryDropdown.querySelectorAll('.category-option').forEach((c) => c.classList.remove('is-active'));
@@ -2798,19 +2804,31 @@ function bindEditStyleControls() {
 
     const customCategoryInput = document.getElementById('edit-category-custom');
     if (customCategoryInput) {
+        customCategoryInput.addEventListener('click', (e) => e.stopPropagation());
         const confirmCustomCategory = () => {
             const val = customCategoryInput.value.trim();
             if (!val) return;
             document.getElementById('edit-category').value = val;
             document.getElementById('edit-category-display').textContent = val;
-            categoryDropdown.querySelectorAll('.category-option').forEach((c) => c.classList.remove('is-active'));
-            categoryDropdown.classList.add('hidden');
+            if (categoryDropdown) categoryDropdown.querySelectorAll('.category-option').forEach((c) => c.classList.remove('is-active'));
+            if (categoryDropdown) categoryDropdown.classList.add('hidden');
             customCategoryInput.value = '';
         };
         customCategoryInput.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') { e.preventDefault(); confirmCustomCategory(); }
         });
     }
+
+    // 点击空白区域关闭下拉和颜色工具栏
+    els.modalBody.addEventListener('click', () => {
+        if (categoryDropdown && !categoryDropdown.classList.contains('hidden')) {
+            categoryDropdown.classList.add('hidden');
+        }
+        const toolbar = document.getElementById('selection-mark-toolbar');
+        if (toolbar && !toolbar.classList.contains('hidden')) {
+            toolbar.classList.add('hidden');
+        }
+    });
 
     const aiButton = document.getElementById('btn-ai-supplement');
     if (aiButton) {
@@ -2820,6 +2838,7 @@ function bindEditStyleControls() {
     const markToolbar = document.getElementById('selection-mark-toolbar');
     if (markToolbar) {
         markToolbar.addEventListener('click', (event) => {
+            event.stopPropagation();
             const button = event.target.closest('[data-mark-color]');
             if (!button) return;
             markSelectedEditText(button.dataset.markColor || 'red');
@@ -3860,6 +3879,12 @@ function confirmIntegrate() {
         .map((point, index) => normalizeKeyPoint(point, index))
         .filter((point) => point.heading && point.content);
 
+    const validSourceCards = cards.filter((card) => selectedIds.has(card.id));
+    if (validSourceCards.length === 0) {
+        alert('源卡片已被删除，无法完成整合。');
+        pendingIntegrateResult = null;
+        return;
+    }
     const integratedCard = {
         id: 'int_' + Date.now(),
         title: result.title,
@@ -3878,9 +3903,9 @@ function confirmIntegrate() {
         isFavorite: false,
         isDemo: false,
         customStyles: {},
-        sourceCards: cards.filter((card) => selectedIds.has(card.id)).map((card) => card.id),
-        source_titles: cards.filter((card) => selectedIds.has(card.id)).map((card) => card.title).filter(Boolean),
-        source_links: cards.filter((card) => selectedIds.has(card.id)).map((card) => sourceVideoUrl(card.video_link)).filter(Boolean)
+        sourceCards: validSourceCards.map((card) => card.id),
+        source_titles: validSourceCards.map((card) => card.title).filter(Boolean),
+        source_links: validSourceCards.map((card) => sourceVideoUrl(card.video_link)).filter(Boolean)
     };
 
     cards = cards.filter((card) => !selectedIds.has(card.id));
@@ -4196,7 +4221,14 @@ function saveCards() {
         localStorage.setItem('douyin_cards', JSON.stringify(cards));
     } catch (error) {
         console.error('保存卡片失败:', error);
-        alert('保存失败：浏览器本地存储空间不足或不可用。');
+        // 尝试清理旧数据后重试
+        try {
+            localStorage.removeItem('douyin_review_session');
+            localStorage.removeItem('douyin_review_stats');
+            localStorage.setItem('douyin_cards', JSON.stringify(cards));
+        } catch (retryError) {
+            alert('存储空间不足，部分数据可能未保存。建议导出重要卡片后清理浏览器数据。');
+        }
     }
 }
 
