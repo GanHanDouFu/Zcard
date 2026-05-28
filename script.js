@@ -2688,7 +2688,7 @@ function renderCardEditForm(card) {
     const presetCategories = ['生活', '职场', '学习', '娱乐', '财经', '健康', '科技'];
     const allCategories = [...new Set([...presetCategories, ...getUserCategories().filter((c) => c !== '全部' && c !== '整合' && c !== '默认')])];
     const categoryChips = allCategories
-        .map((c) => `<div class="category-option${c === (card.category || '') ? ' is-active' : ''}" data-category="${escapeHTML(c)}">${escapeHTML(c)}</div>`)
+        .map((c) => `<button type="button" class="category-option${c === (card.category || '') ? ' is-active' : ''}" data-category="${escapeHTML(c)}">${escapeHTML(c)}</button>`)
         .join('');
     return `
         <div class="edit-form">
@@ -2707,9 +2707,12 @@ function renderCardEditForm(card) {
                             <i data-lucide="chevron-down"></i>
                         </button>
                         <div class="category-dropdown hidden" id="edit-category-dropdown">
-                            ${categoryChips}
+                            <div class="category-dropdown-title">常用分类</div>
+                            <div class="category-option-grid">
+                                ${categoryChips}
+                            </div>
                             <div class="category-dropdown-custom">
-                                <input id="edit-category-custom" type="text" placeholder="输入自定义分类" maxlength="6">
+                                <input id="edit-category-custom" type="text" placeholder="新建自定义分类" maxlength="10">
                                 <button type="button" class="category-custom-btn" id="btn-confirm-custom-category">确定</button>
                             </div>
                         </div>
