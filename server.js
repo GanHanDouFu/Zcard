@@ -21,9 +21,27 @@ function loadLocalEnv() {
 
 loadLocalEnv();
 
+function normalizeEnvUrl(value, key) {
+    let normalized = String(value || '').trim().replace(/^['"]|['"]$/g, '');
+    const prefix = `${key}=`;
+    if (normalized.startsWith(prefix)) {
+        normalized = normalized.slice(prefix.length).trim();
+    }
+    return normalized;
+}
+
+function isHttpUrl(value) {
+    try {
+        const url = new URL(value);
+        return url.protocol === 'http:' || url.protocol === 'https:';
+    } catch {
+        return false;
+    }
+}
+
 const PORT = Number(process.env.PORT || 8080);
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || '';
-const VIDEO_TEXT_API_URL = process.env.VIDEO_TEXT_API_URL || '';
+const VIDEO_TEXT_API_URL = normalizeEnvUrl(process.env.VIDEO_TEXT_API_URL, 'VIDEO_TEXT_API_URL');
 const VIDEO_TEXT_API_KEY = process.env.VIDEO_TEXT_API_KEY || '';
 const VIDEO_TEXT_API_METHOD = (process.env.VIDEO_TEXT_API_METHOD || 'POST').trim().toUpperCase();
 const VIDEO_TEXT_API_AUTH_HEADER = process.env.VIDEO_TEXT_API_AUTH_HEADER || 'Authorization';
@@ -579,6 +597,12 @@ async function fetchVideoText(videoLink) {
         return {
             status: 'needs_text',
             reason: '未配置 VIDEO_TEXT_API_URL，暂时无法只通过链接提取视频文字。'
+        };
+    }
+    if (!isHttpUrl(VIDEO_TEXT_API_URL)) {
+        return {
+            status: 'needs_text',
+            reason: 'VIDEO_TEXT_API_URL 不是有效链接，请只填写 https://... 形式的接口地址，不要带变量名。'
         };
     }
 
