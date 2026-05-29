@@ -15,7 +15,7 @@ Zcard 是一个移动端优先的 Web 应用。它解决的问题很具体：刷
 5. 在编辑器里用类 WPS 的局部颜色标记圈出重点，AI 还能基于卡片主题生成补充内容。
 6. 现场网络或 API 不可用时，会自动使用本地演示模式生成卡片，保证 Demo 可继续展示。
 
-如果只粘贴视频链接，当前版本会先提示补充字幕、转录文本或较完整文案，避免 AI 根据标题硬编。
+支持粘贴抖音视频链接自动提取字幕（需配置 BibiGPT API），也支持手动粘贴视频文案生成卡片。
 
 ## 功能亮点
 
@@ -82,9 +82,39 @@ http://localhost:8080/
 ```env
 PORT=8080
 DEEPSEEK_API_KEY=sk-your-deepseek-api-key
+
+# 视频文字提取（可选，支持粘贴抖音链接自动提取字幕）
+VIDEO_TEXT_API_URL=https://api.bibigpt.co/api/v1/summarizeWithConfig
+VIDEO_TEXT_API_KEY=your-bibigpt-api-token
+VIDEO_TEXT_API_METHOD=POST
+VIDEO_TEXT_API_AUTH_HEADER=Authorization
+VIDEO_TEXT_API_AUTH_PREFIX=Bearer
+VIDEO_TEXT_API_URL_FIELD=url
+VIDEO_TEXT_API_TEXT_PATHS=summary,transcript,subtitle,text,content
 ```
 
-如果没有配置 `.env`，页面里的设置按钮也可以临时填写 API Key，仅保存在当前浏览器标签页的 `sessionStorage`。两种方式都不可用时，生成和整合会走本地演示兜底逻辑。
+### 视频文字提取 API
+
+Zcard 支持通过第三方 API 从视频链接自动提取字幕/转录文本。目前支持 [BibiGPT](https://bibigpt.co) 作为视频文字提取服务。
+
+**获取 BibiGPT API Token：**
+1. 访问 https://bibigpt.co 并登录
+2. 进入「开放 API」页面
+3. 复制你的专属 API Token
+
+**环境变量说明：**
+
+| 变量 | 说明 | 必填 |
+|------|------|------|
+| `VIDEO_TEXT_API_URL` | 视频提取 API 地址 | 否 |
+| `VIDEO_TEXT_API_KEY` | API Token | 否 |
+| `VIDEO_TEXT_API_METHOD` | 请求方法（POST） | 否 |
+| `VIDEO_TEXT_API_AUTH_HEADER` | 认证头名称 | 否 |
+| `VIDEO_TEXT_API_AUTH_PREFIX` | 认证前缀（Bearer） | 否 |
+| `VIDEO_TEXT_API_URL_FIELD` | 请求体中视频链接的字段名 | 否 |
+| `VIDEO_TEXT_API_TEXT_PATHS` | 响应中提取文字的路径 | 否 |
+
+如果没有配置视频提取 API，用户可以手动粘贴视频文案生成卡片。
 
 ## 项目结构
 
@@ -129,7 +159,9 @@ https://zcard-production.up.railway.app/
 
 部署相关说明：
 
-- 在 Railway 项目变量里配置 `DEEPSEEK_API_KEY`。
+- 在 Railway 项目变量里配置以下环境变量：
+  - `DEEPSEEK_API_KEY`（必填）
+  - `VIDEO_TEXT_API_URL`、`VIDEO_TEXT_API_KEY` 等（可选，用于视频链接自动提取字幕）
 - Railway 会自动检测 Node.js 项目并执行 `npm start`。
 - 如果浏览器看到的还是旧版本，加 query 参数强制刷新：`?v=20260528`。
 
