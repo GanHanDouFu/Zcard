@@ -593,23 +593,35 @@ async function handleDeepSeek(req, res) {
 }
 
 async function fetchVideoText(videoLink) {
+    console.log('[video-text] 开始提取, videoLink:', videoLink);
+    console.log('[video-text] VIDEO_TEXT_API_URL:', VIDEO_TEXT_API_URL);
+    console.log('[video-text] VIDEO_TEXT_API_METHOD:', VIDEO_TEXT_API_METHOD);
+
     if (!VIDEO_TEXT_API_URL) {
+        console.log('[video-text] 未配置 VIDEO_TEXT_API_URL');
         return {
             status: 'needs_text',
             reason: '未配置 VIDEO_TEXT_API_URL，暂时无法只通过链接提取视频文字。'
         };
     }
     if (!isHttpUrl(VIDEO_TEXT_API_URL)) {
+        console.log('[video-text] VIDEO_TEXT_API_URL 不是有效链接:', VIDEO_TEXT_API_URL);
         return {
             status: 'needs_text',
             reason: 'VIDEO_TEXT_API_URL 不是有效链接，请只填写 https://... 形式的接口地址，不要带变量名。'
         };
     }
 
+    console.log('[video-text] 调用 API...');
     const result = VIDEO_TEXT_API_METHOD === 'GET'
         ? await getJson(VIDEO_TEXT_API_URL, buildVideoTextQuery(videoLink), buildVideoTextHeaders(), VIDEO_TEXT_API_TIMEOUT_MS)
         : await postJson(VIDEO_TEXT_API_URL, buildVideoTextRequestBody(videoLink), buildVideoTextHeaders(), VIDEO_TEXT_API_TIMEOUT_MS);
+
+    console.log('[video-text] API 返回状态:', result.statusCode);
+    console.log('[video-text] API 返回数据:', JSON.stringify(result.data).substring(0, 500));
+
     if (result.statusCode < 200 || result.statusCode >= 300) {
+        console.log('[video-text] API 返回错误:', result.data?.error || result.data?.message);
         return {
             status: 'needs_text',
             reason: result.data?.error || result.data?.message || `视频文字提取 API 返回 ${result.statusCode}`
@@ -617,7 +629,12 @@ async function fetchVideoText(videoLink) {
     }
 
     const normalized = normalizeVideoTextPayload(result.data);
+    console.log('[video-text] 解析后 title:', normalized.title);
+    console.log('[video-text] 解析后 transcript 长度:', normalized.transcript.length);
+    console.log('[video-text] 解析后 transcript 前200字:', normalized.transcript.substring(0, 200));
+
     if (!hasEnoughVideoContent(normalized.transcript)) {
+        console.log('[video-text] 内容不够，需要用户手动输入');
         return {
             status: 'needs_text',
             reason: '视频文字提取 API 未返回足够的字幕或转录文本。',
@@ -626,6 +643,7 @@ async function fetchVideoText(videoLink) {
         };
     }
 
+    console.log('[video-text] 提取成功');
     return {
         status: 'ok',
         title: normalized.title,
