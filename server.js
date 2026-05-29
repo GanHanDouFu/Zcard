@@ -356,7 +356,69 @@ async function callDeepSeekJson(prompt) {
 
     const content = result.data?.choices?.[0]?.message?.content || '';
     if (!content) throw new Error('AI 返回内容为空');
-    return JSON.parse(content.trim().replace(/^```(?:json)?\s*/i, '').replace(/```$/i, '').trim());
+    return parseJsonObject(content);
+}
+
+function parseJsonObject(content) {
+    const cleaned = String(content || '')
+        .trim()
+        .replace(/^```(?:json)?\s*/i, '')
+        .replace(/```$/i, '')
+        .trim();
+    const start = cleaned.indexOf('{');
+    const end = cleaned.lastIndexOf('}');
+    const candidates = [
+        cleaned,
+        start >= 0 && end > start ? cleaned.slice(start, end + 1) : '',
+        cleaned.replace(/,\s*([}\]])/g, '$1')
+    ].filter(Boolean);
+
+    let lastError;
+    for (const candidate of candidates) {
+        try {
+            return JSON.parse(candidate);
+        } catch (error) {
+            lastError = error;
+        }
+    }
+    throw lastError || new Error('AI 返回 JSON 格式异常');
+}
+
+function createFallbackExtractedCard(sourceText, videoLink = '', meta = {}, errorMessage = '') {
+    const text = String(sourceText || '').replace(/\s+/g, ' ').trim();
+    const chunks = text
+        .split(/[。！？!?；;\n]+/)
+        .map((item) => item.trim())
+        .filter(Boolean);
+    const first = chunks[0] || text || '这段内容值得整理成知识卡片';
+    const title = String(meta.title || first).replace(/\s+/g, '').slice(0, 16) || '视频知识摘录';
+    const core = chunks.slice(0, 2).join('。').slice(0, 140) || first.slice(0, 140);
+    const headings = ['核心内容', '关键细节', '可复盘点', '后续理解'];
+    const points = chunks.slice(1, 5);
+
+    while (points.length < 4) {
+        points.push([
+            '保留视频中的主要事实与判断，方便后续不打开原视频也能快速回忆。',
+            '把内容拆成可复盘的要点，后续可以继续编辑、标注和补充。',
+            '当前卡片由本地保底逻辑生成，建议保存后再按自己的理解微调。',
+            '如果需要更精细的总结，可以补充更完整字幕或稍后重新生成。'
+        ][points.length]);
+    }
+
+    return {
+        title,
+        core_point: core,
+        key_points: points.slice(0, 4).map((point, index) => ({
+            heading: headings[index],
+            content: point.length < 36 ? `${point}。这个信息可以作为之后复盘原视频的线索。` : point.slice(0, 180)
+        })),
+        quote: '',
+        action: '',
+        category: '默认',
+        video_link: videoLink,
+        is_local: true,
+        fallback_reason: errorMessage
+    };
 }
 
 function readBody(req) {
@@ -613,7 +675,8 @@ async function handleExtractCard(req, res) {
                     reason: '已提取到视频文字，但缺少 DEEPSEEK_API_KEY，暂时无法生成 Zcard 卡片。'
                 });
             }
-            throw error;
+            console.warn('[extract-card] AI 返回格式异常，已使用保底卡片:', error.message);
+            card = createFallbackExtractedCard(sourceText, videoLink, extractMeta, error.message);
         }
 
         const response = {

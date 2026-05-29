@@ -3436,17 +3436,24 @@ async function callDeepSeek(prompt) {
 function parseAIContent(content) {
     content = content.trim().replace(/^```(?:json)?\s*/i, '').replace(/```$/i, '').trim();
     console.log('[Zcard] AI 原始返回内容:', content);
-    try {
-        return JSON.parse(content);
-    } catch (e) {
-        console.error('[Zcard] JSON 解析失败:', e.message);
-        const jsonMatch = content.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-            console.log('[Zcard] 尝试从内容中提取 JSON');
-            return JSON.parse(jsonMatch[0]);
+    const start = content.indexOf('{');
+    const end = content.lastIndexOf('}');
+    const candidates = [
+        content,
+        start >= 0 && end > start ? content.slice(start, end + 1) : '',
+        content.replace(/,\s*([}\]])/g, '$1')
+    ].filter(Boolean);
+
+    let lastError;
+    for (const candidate of candidates) {
+        try {
+            return JSON.parse(candidate);
+        } catch (e) {
+            lastError = e;
         }
-        throw new Error('AI 返回的内容不是有效 JSON: ' + content.substring(0, 100));
     }
+    console.error('[Zcard] JSON 解析失败:', lastError?.message);
+    throw new Error('AI 返回的内容不是有效 JSON: ' + content.substring(0, 100));
 }
 
 function createLocalCard(text, videoLink = '') {
