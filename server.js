@@ -341,25 +341,32 @@ function buildCardPrompt(sourceText, videoLink = '') {
 
     if (textLen < 200) {
         pointCount = '2-3';
-        pointLen = '30-80';
-        coreLen = '30-80';
-    } else if (textLen < 800) {
-        pointCount = '3-4';
-        pointLen = '60-120';
+        pointLen = '50-100';
         coreLen = '50-100';
-    } else {
-        pointCount = '4-6';
+    } else if (textLen < 800) {
+        pointCount = '3-5';
         pointLen = '80-150';
-        coreLen = '60-120';
+        coreLen = '80-150';
+    } else {
+        pointCount = '4-7';
+        pointLen = '100-200';
+        coreLen = '100-200';
     }
 
-    return `基于原文生成知识卡片JSON，不要补充原文没有的内容。
+    return `你是一个专业的知识卡片整理助手。基于以下内容生成一张结构化的知识卡片。
 
-格式：{“title”:”8-14字”,”core_point”:”${coreLen}字核心观点”,”key_points”:[{“heading”:”4-10字”,”content”:”${pointLen}字”}],”quote”:””,”action”:””,”category”:”默认”,”video_link”:”${videoLink}”}
+要求：
+- 只基于提供的内容总结，不要自行补充或推测
+- ${pointCount}个key_points，每个要点要详细、有深度
+- core_point 要概括核心观点，言之有物
+- 如果内容中有金句或经典表达，提取到 quote 字段
+- 如果内容中有可执行的建议，提取到 action 字段
+- 根据内容自动判断领域分类
 
-要求：${pointCount}个key_points，中文，信息少就少生成。
+输出JSON格式：
+{“title”:”8-16字标题”,”core_point”:”${coreLen}字核心观点”,”key_points”:[{“heading”:”4-12字小标题”,”content”:”${pointLen}字详细内容”}],”quote”:”金句（可选）”,”action”:”行动建议（可选）”,”category”:”领域分类”,”video_link”:”${videoLink}”}
 
-原文：
+内容：
 ${sourceText}`;
 }
 
@@ -373,7 +380,7 @@ async function callDeepSeekJson(prompt, retryCount = 0) {
             model: 'deepseek-chat',
             messages: [{ role: 'user', content: prompt }],
             response_format: { type: 'json_object' },
-            max_tokens: 1024,
+            max_tokens: 2048,
             temperature: 0.3
         }, {
             Authorization: `Bearer ${DEEPSEEK_API_KEY}`
