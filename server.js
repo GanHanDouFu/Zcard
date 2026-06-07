@@ -341,24 +341,24 @@ function buildCardPrompt(sourceText, videoLink = '') {
 
     if (textLen < 200) {
         pointCount = '2-3';
-        pointLen = '50-100';
-        coreLen = '50-100';
+        pointLen = '60-120';
+        coreLen = '60-120';
     } else if (textLen < 800) {
         pointCount = '3-5';
-        pointLen = '80-150';
-        coreLen = '80-150';
+        pointLen = '100-180';
+        coreLen = '100-180';
     } else {
         pointCount = '4-7';
-        pointLen = '100-200';
-        coreLen = '100-200';
+        pointLen = '120-250';
+        coreLen = '120-250';
     }
 
     return `你是一个专业的知识卡片整理助手。基于以下内容生成一张结构化的知识卡片。
 
 要求：
 - 只基于提供的内容总结，不要自行补充或推测
-- ${pointCount}个key_points，每个要点要详细、有深度
-- core_point 要概括核心观点，言之有物
+- ${pointCount}个key_points，每个要点要详细、有深度、有具体例子或解释
+- core_point 要概括核心观点，言之有物，不要空泛
 - 如果内容中有金句或经典表达，提取到 quote 字段
 - 如果内容中有可执行的建议，提取到 action 字段
 - 根据内容自动判断领域分类
