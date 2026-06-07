@@ -1170,13 +1170,26 @@ function renderKnowledgeGraph() {
             </button>
             <div class="graph-card-head">
                 <div>
-                    <span class="graph-card-head-kicker">知识卡片</span>
+                    <span class="graph-card-head-kicker">知识图谱</span>
                     <strong>${escapeHTML(railTitle)}</strong>
                     <p>${escapeHTML(railKicker)}</p>
                 </div>
             </div>
             ${railCards.length
-                ? `<div class="graph-card-list graph-card-list-page">${railCards.map((card) => renderKnowledgeGraphCard(card, 'page')).join('')}</div>`
+                ? `<div class="graph-mindmap">
+                        <div class="graph-mindmap-center">${escapeHTML(activeGraphCategory)}</div>
+                        <div class="graph-mindmap-nodes">
+                            ${railCards.map((card, idx) => {
+                                const points = safeList(card.key_points).map((p, i) => normalizeKeyPoint(p, i));
+                                return `<div class="graph-mindmap-card" data-graph-card-id="${card.id}" style="--delay:${idx * 0.06}s">
+                                    <div class="graph-mindmap-title">${escapeHTML(card.title || '未命名')}</div>
+                                    <div class="graph-mindmap-points">
+                                        ${points.slice(0, 4).map(p => `<span class="graph-mindmap-point">${escapeHTML(p.heading)}</span>`).join('')}
+                                    </div>
+                                </div>`;
+                            }).join('')}
+                        </div>
+                    </div>`
                 : `<div class="graph-cards-empty"><p>${escapeHTML(emptyText)}</p></div>`}
         </div>
     `;
@@ -1520,9 +1533,10 @@ function bindEvents() {
             els.knowledgeUniverse.scrollIntoView({ behavior: 'smooth', block: 'start' });
             return;
         }
-        const item = e.target.closest('[data-card-id]');
+        const item = e.target.closest('[data-card-id]') || e.target.closest('[data-graph-card-id]');
         if (!item) return;
-        const card = cards.find((entry) => entry.id === item.dataset.cardId);
+        const cardId = item.dataset.cardId || item.dataset.graphCardId;
+        const card = cards.find((entry) => entry.id === cardId);
         if (card) openCardActions(card);
     });
 }
@@ -1600,11 +1614,7 @@ function renderCards() {
 
     // 2. 顶部内容分类过滤
     if (currentCategory !== '全部') {
-        if (currentCategory === MERGED_CATEGORY) {
-            filtered = filtered.filter(c => normalizeCard(c).isIntegrated || c.is_integrated);
-        } else {
-            filtered = filtered.filter(c => normalizeCategory(c.category) === currentCategory);
-        }
+        filtered = filtered.filter(c => normalizeCategory(c.category) === currentCategory);
     }
 
     // 3. 当前范围内搜索：只筛选当前底部视图和当前分类里的卡片
@@ -2027,10 +2037,7 @@ function includeCardInTodayReviewSession(cardId) {
     const normalizedIds = safeList(reviewSession.cardIds).filter((id) => id !== cardId);
     reviewSession.cardIds = [cardId, ...normalizedIds];
     reviewSession.skippedIds = safeList(reviewSession.skippedIds).filter((id) => id !== cardId);
-    reviewSession.completed = false;
-    reviewSession.completedAt = '';
-    reviewSession.correctCount = 0;
-    reviewSession.wrongCount = 0;
+    // 不重置已完成的复习状态，只把新卡片加入队列
     saveReviewSession(reviewSession);
 }
 
@@ -2295,21 +2302,32 @@ function trimOptionText(text, max = 86) {
 }
 
 function getDistractorTexts(currentCard) {
-    const title = currentCard.title || '这张卡片';
     const points = safeList(currentCard.key_points).map((point, index) => normalizeKeyPoint(point, index));
-    const firstPoint = points[0] || { heading: '核心要点', content: getQuizPrompt(currentCard) };
-    const secondPoint = points[1] || points[0] || firstPoint;
     const core = getQuizPrompt(currentCard);
-    const candidates = [
-        `把“${firstPoint.heading}”当成孤立技巧，不需要联系卡片的主要观点。`,
-        `与卡片观点相反，${title}更强调短期刺激和表面记忆，而不是理解背后的原因。`,
-        `只需要记住“${secondPoint.heading}”这个词，不必判断它在实际场景中如何使用。`,
-        `这张卡片的重点是收集更多信息，而不是围绕“${trimOptionText(core, 28)}”形成理解。`
-    ];
+    const title = currentCard.title || '';
+    const candidates = [];
+
+    // 用 key_points 的内容改造为干扰项
+    if (points.length >= 1 && points[0].content) {
+        candidates.push(trimOptionText(points[0].content));
+    }
+    if (points.length >= 2 && points[1].content) {
+        candidates.push(trimOptionText(points[1].content));
+    }
+    if (points.length >= 3 && points[2].content) {
+        candidates.push(trimOptionText(points[2].content));
+    }
+
+    // 用其他卡片的 core_point 作为干扰项
+    const otherCards = cards.filter(c => c.id !== currentCard.id && c.core_point).slice(0, 3);
+    otherCards.forEach(c => {
+        candidates.push(trimOptionText(c.core_point));
+    });
+
     const used = new Set([core]);
     return candidates
         .map((text) => trimOptionText(text))
-        .filter((text) => text && !used.has(text) && (used.add(text), true))
+        .filter((text) => text && text.length > 10 && !used.has(text) && (used.add(text), true))
         .slice(0, 3);
 }
 
@@ -2401,7 +2419,7 @@ function startQuizMode() {
         ...activeReviewIds.filter((id) => swipeReviewResults[id] === 'understood')
     ];
 
-    quizQueue = prioritizedIds.map(getCardById).filter(Boolean);
+    quizQueue = prioritizedIds.map(getCardById).filter(Boolean).slice(0, 3);
     if (quizQueue.length === 0) {
         closeSwipeReview();
         return;
@@ -2447,7 +2465,7 @@ function handleQuizAnswer(optionIndex) {
     window.setTimeout(() => {
         quizIndex++;
         renderQuizQuestion();
-    }, selected?.correct ? 1100 : 1500);
+    }, selected?.correct ? 1100 : 3000);
 }
 
 function updateReviewStreak(correctCount) {
@@ -3126,17 +3144,18 @@ function getCurrentEditDraft() {
 }
 
 function buildAiSupplementPrompt(draft) {
-    return `你是知识卡片编辑助手。请基于用户正在编辑的卡片，补充高度相关、简洁、有用的背景知识或延伸理解。
+    return `你是知识卡片编辑助手。请基于用户正在编辑的卡片，为每个关键要点补充一条延伸理解或背景知识。
 
 要求：
 1. 只输出 JSON 对象，不要 Markdown。
 2. 不要编造具体平台检索结果、链接或实时新闻。
-3. 补充内容必须与卡片主题高度相关，避免泛泛而谈。
-4. 输出 4-6 条，每条 25-60 个中文字符。
-5. 每条包含 title 和 content。
+3. 每条补充必须明确对应原卡片的一个关键要点，用 target_point 字段标注对应的要点标题。
+4. 补充内容是对该要点的延伸理解、背景知识或实际应用建议，不能重复原文。
+5. 输出 3-5 条，每条 30-80 个中文字符。
+6. 每条包含 target_point、title 和 content。
 
 返回格式：
-{"supplements":[{"title":"补充标题","content":"补充内容"}]}
+{"supplements":[{"target_point":"对应要点标题","title":"补充标题","content":"补充内容"}]}
 
 当前卡片：
 标题：${draft.title}
@@ -3155,9 +3174,10 @@ function normalizeAiSupplements(result) {
     return rawList
         .map((item, index) => {
             if (typeof item === 'string') {
-                return { title: `补充 ${index + 1}`, content: item.trim() };
+                return { title: `补充 ${index + 1}`, content: item.trim(), target_point: '' };
             }
             return {
+                target_point: String(item?.target_point || item?.targetPoint || '').trim(),
                 title: String(item?.title || item?.heading || `补充 ${index + 1}`).trim(),
                 content: String(item?.content || item?.text || item?.summary || '').trim()
             };
@@ -3195,6 +3215,7 @@ async function handleAiSupplement() {
                     <label class="ai-supplement-item">
                         <input type="checkbox" data-ai-supplement-item value="${index}">
                         <span>
+                            ${item.target_point ? `<small class="ai-supplement-target">→ ${escapeHTML(item.target_point)}</small>` : ''}
                             <strong>${escapeHTML(item.title)}</strong>
                             <em>${escapeHTML(item.content)}</em>
                         </span>
@@ -3230,7 +3251,9 @@ function addSelectedAiSupplements() {
     }
 
     const addition = selected
-        .map((item) => `- ${item.title}：${item.content}`)
+        .map((item) => item.target_point
+            ? `- 【${item.target_point}】${item.title}：${item.content}`
+            : `- ${item.title}：${item.content}`)
         .join('\n');
     const existing = getEditablePlainText(noteInput).trim();
     noteInput.innerHTML = escapeHTML(existing
@@ -3268,6 +3291,10 @@ function saveEditedCard() {
     const noteInput = document.getElementById('edit-note');
     card.title = stripInlineMarks(getEditablePlainText(titleInput)).trim() || card.title;
     card.category = normalizeCategory(document.getElementById('edit-category').value);
+    if (card.category !== MERGED_CATEGORY && (card.isIntegrated || card.is_integrated)) {
+        card.isIntegrated = false;
+        card.is_integrated = false;
+    }
     card.core_point = stripInlineMarks(getEditablePlainText(coreInput)).trim();
     card.key_points = stripInlineMarks(getEditablePlainText(pointsInput)).split('\n').map(p => p.trim()).filter(Boolean);
     card.quote = card.quote || '';
@@ -3511,7 +3538,7 @@ function cleanSharedText(text) {
 
 async function callExtractCard(input) {
     const controller = new AbortController();
-    const timeoutId = window.setTimeout(() => controller.abort(), 130000);
+    const timeoutId = window.setTimeout(() => controller.abort(), 35000);
     let res;
     try {
         res = await fetch(EXTRACT_CARD_API_URL, {
@@ -3636,7 +3663,18 @@ async function handleGenerateCard() {
     const cleanedInput = cleanSharedText(text);
     console.log('[Zcard] 文本清洗完毕, 长度:', cleanedInput.length);
 
-    els.loadingIndicator.querySelector('span').textContent = linkMatches.length ? '正在提取视频文字...' : 'AI 正在为您提炼知识...';
+    // 显示分步进度
+    if (linkMatches.length) {
+        els.loadingIndicator.querySelector('span').textContent = '正在解析视频链接...';
+        setTimeout(() => {
+            els.loadingIndicator.querySelector('span').textContent = '正在提取字幕文字...';
+        }, 1000);
+        setTimeout(() => {
+            els.loadingIndicator.querySelector('span').textContent = '正在生成知识卡片...';
+        }, 3000);
+    } else {
+        els.loadingIndicator.querySelector('span').textContent = 'AI 正在为您提炼知识...';
+    }
 
     let prompt = "";
     let result;
@@ -3684,35 +3722,37 @@ async function handleGenerateCard() {
 
         // 如果文本中包含多个链接以及对应说明文字，我们将其视为多源融合输入
         if (linkMatches.length > 1) {
-            // 多视频融合 Prompt
-            prompt = `你是一个知识整合专家。用户提供了多个信息源（视频或文章）的内容，请你将它们融合成一张结构化的知识卡片。严格按JSON格式返回，不要返回任何其他文字，不要使用markdown格式。
+            // 多源融合 Prompt
+            prompt = `你是一个知识整合专家。用户提供了多个信息源的内容，请将它们融合成一张知识卡片。严格按JSON格式返回，不要返回任何其他文字，不要使用markdown格式。
 
 返回格式：
-{"title": "综合提炼的标题（10字以内）", "core_point": "主要观点（一句话总结这几个信息源的共性）", "key_points": [{"heading":"小标题","content":"详细说明"}], "quote": "", "action": "", "category": "${DEFAULT_CATEGORY}"}
+{“title”: “综合提炼的标题（10字以内）”, “core_point”: “主要观点（一句话总结共性）”, “key_points”: [{“heading”:”小标题”,”content”:”详细说明”}], “quote”: “”, “action”: “”, “category”: “${DEFAULT_CATEGORY}”}
 
 字段要求：
 1. 所有字段必须使用中文。
-2. key_points 返回 3-5 个对象，每个对象包含 heading 和 content。
-3. quote 和 action 固定返回空字符串。
-4. category 固定返回“${DEFAULT_CATEGORY}”。
-5. 只能基于用户提供的正文总结，不能根据标题、链接或缺失信息进行推测。
+2. key_points 返回 3-5 个对象，根据实际信息量决定。
+3. 只能基于提供的原文总结，不能自行补充或推测。
+4. quote、action 固定返回空字符串，category 固定返回”${DEFAULT_CATEGORY}”。
 
-视频内容如下：
+原文内容：
 ${text}`;
         } else {
-            // 单视频 Prompt
-            prompt = `你是一个视频内容分析专家。请对以下抖音视频内容进行结构化总结，严格按JSON格式返回，不要返回任何其他文字，不要使用markdown格式：
+            // 单内容 Prompt — 根据是否有链接决定措辞
+            const hasLink = videoLink.length > 0;
+            const roleName = hasLink ? '内容分析专家' : '知识卡片整理助手';
+            const label = hasLink ? '以下是从视频中提取的内容' : '以下内容';
+            prompt = `你是一个${roleName}。请对${label}进行结构化总结，严格按JSON格式返回，不要返回任何其他文字，不要使用markdown格式：
 
-{"title": "标题（10字以内）", "core_point": "主要观点（一句话）", "key_points": [{"heading":"小标题","content":"详细说明"}], "quote": "", "action": "", "category": "${DEFAULT_CATEGORY}"}
+{“title”: “标题（10字以内）”, “core_point”: “主要观点”, “key_points”: [{“heading”:”小标题”,”content”:”详细说明”}], “quote”: “”, “action”: “”, “category”: “${DEFAULT_CATEGORY}”}
 
 字段要求：
 1. 所有字段必须使用中文。
-2. key_points 返回 3-5 个对象，每个对象包含 heading 和 content。
-3. quote 和 action 固定返回空字符串。
-4. category 固定返回“${DEFAULT_CATEGORY}”。
-5. 只能基于用户提供的正文总结，不能根据标题、链接或缺失信息进行推测。
+2. key_points 根据原文信息量生成 2-5 个对象，信息少就少生成，不要凑数。
+3. 只能基于提供的原文总结，绝对不能自行补充或推测原文没有的内容。
+4. 不要使用”视频展示了””视频中”等措辞，直接陈述内容本身。
+5. quote、action 固定返回空字符串，category 固定返回”${DEFAULT_CATEGORY}”。
 
-视频内容：
+原文：
 ${text}`;
         }
 
@@ -4176,7 +4216,7 @@ function buildExportCanvas(selectedCardsData) {
         let cursorY = y + styles.cardPadding;
         const cursorX = padding + styles.cardPadding;
         const innerWidth = cardWidth - styles.cardPadding * 2;
-        const pillText = card.isIntegrated || card.is_integrated ? MERGED_CATEGORY : (card.category || DEFAULT_CATEGORY);
+        const pillText = card.category || DEFAULT_CATEGORY;
         const pillWidth = Math.max(120, Math.ceil(measureCtx.measureText(pillText).width) + 28);
 
         drawRoundedRect(ctx, cursorX, cursorY, pillWidth, styles.pillHeight, 999);

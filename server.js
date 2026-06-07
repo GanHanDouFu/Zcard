@@ -49,7 +49,10 @@ const VIDEO_TEXT_API_AUTH_PREFIX = process.env.VIDEO_TEXT_API_AUTH_PREFIX || 'Be
 const VIDEO_TEXT_API_URL_FIELD = process.env.VIDEO_TEXT_API_URL_FIELD || 'url';
 const VIDEO_TEXT_API_QUERY_FIELD = process.env.VIDEO_TEXT_API_QUERY_FIELD || VIDEO_TEXT_API_URL_FIELD;
 const VIDEO_TEXT_API_EXTRA_BODY = process.env.VIDEO_TEXT_API_EXTRA_BODY || '';
-const VIDEO_TEXT_API_TIMEOUT_MS = Number(process.env.VIDEO_TEXT_API_TIMEOUT_MS || 120000);
+const VIDEO_TEXT_API_TIMEOUT_MS = Number(process.env.VIDEO_TEXT_API_TIMEOUT_MS || 30000);
+const TIKHUB_API_KEY = process.env.TIKHUB_API_KEY || '';
+const TIKHUB_API_BASE = (process.env.TIKHUB_API_BASE || 'https://api.tikhub.dev').replace(/\/+$/, '');
+const GROQ_API_KEY = process.env.GROQ_API_KEY || '';
 const VIDEO_TEXT_API_TEXT_PATHS = (process.env.VIDEO_TEXT_API_TEXT_PATHS || '')
     .split(',')
     .map((item) => item.trim())
@@ -333,48 +336,64 @@ function getJson(url, query = {}, headers = {}, timeoutMs = 30000, redirectCount
 }
 
 function buildCardPrompt(sourceText, videoLink = '') {
-    return `你是一个视频知识卡片整理助手。请只基于用户提供的视频字幕/转录文本生成“信息量充足、之后能复用”的知识卡片，不要根据标题、链接或缺失信息进行推测。严格按 JSON 返回，不要返回任何其他文字，不要使用 markdown。
+    const textLen = sourceText.length;
+    let pointCount, pointLen, coreLen;
 
-返回格式：
-{"title":"标题（8到14字）","core_point":"主要观点（70到120字，说明视频核心论点和价值）","key_points":[{"heading":"小标题1","content":"90到160字详细说明1"},{"heading":"小标题2","content":"90到160字详细说明2"},{"heading":"小标题3","content":"90到160字详细说明3"},{"heading":"小标题4","content":"90到160字详细说明4"}],"quote":"","action":"","category":"默认","video_link":"${videoLink}"}
+    if (textLen < 200) {
+        pointCount = '2-3';
+        pointLen = '30-80';
+        coreLen = '30-80';
+    } else if (textLen < 800) {
+        pointCount = '3-4';
+        pointLen = '60-120';
+        coreLen = '50-100';
+    } else {
+        pointCount = '4-6';
+        pointLen = '80-150';
+        coreLen = '60-120';
+    }
 
-字段要求：
-1. 所有字段必须使用中文。
-2. core_point 不能空泛，必须说明“视频讲了什么 + 为什么值得保存”，长度 70-120 字。
-3. key_points 必须是 4-6 个对象，每个对象包含 heading 和 content；除非原文信息确实不足，否则不要少于 4 个。
-4. heading 控制在 4-10 个字，像“问题背景”“关键方法”“注意事项”“适用场景”“创作看点”“可复用点”这种小标题；请根据视频类型动态命名。
-5. content 每条 90-160 字，必须包含具体对象、事件、方法、原因、结果、例子或可复用信息，不能只写一句短标题。
-6. 每条 content 尽量回答至少两个问题：发生了什么/讲了什么、为什么重要、之后怎么理解或复用。
-7. 如果是知识干货，优先提炼问题背景、方法步骤、关键原理、注意事项、适用场景、可复用结论；如果是剧情/案例，优先提炼故事设定、关键冲突、人物行动、结果结论、创作技法、可借鉴点。
-8. 不要为了简洁牺牲信息量；目标是让用户以后不打开原视频，也能通过卡片快速回忆主要内容。
-9. quote 固定返回空字符串。
-10. action 固定返回空字符串。
-11. category 固定返回“默认”。
+    return `基于原文生成知识卡片JSON，不要补充原文没有的内容。
 
-视频文字内容：
+格式：{“title”:”8-14字”,”core_point”:”${coreLen}字核心观点”,”key_points”:[{“heading”:”4-10字”,”content”:”${pointLen}字”}],”quote”:””,”action”:””,”category”:”默认”,”video_link”:”${videoLink}”}
+
+要求：${pointCount}个key_points，中文，信息少就少生成。
+
+原文：
 ${sourceText}`;
 }
 
-async function callDeepSeekJson(prompt) {
+async function callDeepSeekJson(prompt, retryCount = 0) {
     if (!DEEPSEEK_API_KEY) {
         throw new Error('缺少 DEEPSEEK_API_KEY');
     }
 
-    const result = await postJson('https://api.deepseek.com/chat/completions', {
-        model: 'deepseek-chat',
-        messages: [{ role: 'user', content: prompt }],
-        response_format: { type: 'json_object' }
-    }, {
-        Authorization: `Bearer ${DEEPSEEK_API_KEY}`
-    }, 30000);
+    try {
+        const result = await postJson('https://api.deepseek.com/chat/completions', {
+            model: 'deepseek-chat',
+            messages: [{ role: 'user', content: prompt }],
+            response_format: { type: 'json_object' },
+            max_tokens: 1024,
+            temperature: 0.3
+        }, {
+            Authorization: `Bearer ${DEEPSEEK_API_KEY}`
+        }, 20000);
 
-    if (result.statusCode !== 200) {
-        throw new Error(result.data?.error?.message || `DeepSeek API 返回 ${result.statusCode}`);
+        if (result.statusCode !== 200) {
+            throw new Error(result.data?.error?.message || `DeepSeek API 返回 ${result.statusCode}`);
+        }
+
+        const content = result.data?.choices?.[0]?.message?.content || '';
+        if (!content) throw new Error('AI 返回内容为空');
+        return parseJsonObject(content);
+    } catch (error) {
+        if (retryCount < 1 && (error.message.includes('timeout') || error.message.includes('ECONNRESET') || error.message.includes('500'))) {
+            console.log(`[deepseek] 重试第 ${retryCount + 1} 次...`);
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            return callDeepSeekJson(prompt, retryCount + 1);
+        }
+        throw error;
     }
-
-    const content = result.data?.choices?.[0]?.message?.content || '';
-    if (!content) throw new Error('AI 返回内容为空');
-    return parseJsonObject(content);
 }
 
 function parseJsonObject(content) {
@@ -651,6 +670,230 @@ async function fetchVideoText(videoLink) {
     };
 }
 
+async function fetchSubtitleText(subtitleUrl) {
+    try {
+        const result = await new Promise((resolve, reject) => {
+            const target = new URL(subtitleUrl);
+            const lib = target.protocol === 'http:' ? http : https;
+            const req = lib.request({
+                hostname: target.hostname,
+                port: target.port,
+                path: `${target.pathname}${target.search}`,
+                method: 'GET',
+                headers: { 'User-Agent': 'Mozilla/5.0' }
+            }, (upstreamRes) => {
+                if ([301, 302, 303, 307, 308].includes(upstreamRes.statusCode) && upstreamRes.headers.location) {
+                    upstreamRes.resume();
+                    fetchSubtitleText(upstreamRes.headers.location).then(resolve).catch(reject);
+                    return;
+                }
+                let raw = '';
+                upstreamRes.on('data', (chunk) => { raw += chunk; });
+                upstreamRes.on('end', () => resolve(raw));
+            });
+            req.on('error', reject);
+            req.setTimeout(8000, () => { req.destroy(); reject(new Error('字幕下载超时')); });
+            req.end();
+        });
+
+        // 清理 SRT/VTT 格式，只保留文字
+        return result
+            .replace(/\d{2}:\d{2}:\d{2}[.,]\d{3}\s*-->\s*\d{2}:\d{2}:\d{2}[.,]\d{3}/g, '')
+            .replace(/^\d+\s*$/gm, '')
+            .replace(/WEBVTT\s*\n?/g, '')
+            .replace(/\[Music\]|\[音乐\]/gi, '')
+            .replace(/\n{2,}/g, '\n')
+            .trim();
+    } catch (e) {
+        console.warn('[tikhub] 字幕下载失败:', e.message);
+        return '';
+    }
+}
+
+async function fetchVideoTextTikHub(videoLink) {
+    if (!TIKHUB_API_KEY) {
+        return { status: 'needs_text', reason: '未配置 TIKHUB_API_KEY' };
+    }
+
+    const url = `${TIKHUB_API_BASE}/api/v1/douyin/web/fetch_one_video_by_share_url`;
+    console.log('[tikhub] 调用 TikHub API:', url);
+
+    const result = await getJson(url, { share_url: videoLink }, {
+        Authorization: `Bearer ${TIKHUB_API_KEY}`
+    }, 15000);
+
+    console.log('[tikhub] 返回状态:', result.statusCode);
+
+    if (result.statusCode !== 200) {
+        return { status: 'needs_text', reason: `TikHub API 返回 ${result.statusCode}` };
+    }
+
+    const detail = result.data?.data?.aweme_detail || result.data?.aweme_detail;
+    if (!detail) {
+        return { status: 'needs_text', reason: 'TikHub 未返回视频详情' };
+    }
+
+    // 获取视频下载链接（用于音频转录）
+    const videoUrl = detail.video?.play_addr?.url_list?.[0]
+        || detail.video?.play_addr_h264?.url_list?.[0]
+        || detail.video?.download_addr?.url_list?.[0]
+        || '';
+
+    let transcript = '';
+
+    // 优先用 subtitle_text（直接文本）
+    if (detail.video?.subtitle_text) {
+        transcript = detail.video.subtitle_text;
+    }
+
+    // 其次尝试下载字幕文件
+    if (!hasEnoughVideoContent(transcript)) {
+        const captionInfos = detail.video?.caption_infos || [];
+        const captionUrl = captionInfos.find(c => c.subtitling_url || c.url);
+        if (captionUrl) {
+            const srtUrl = captionUrl.subtitling_url || captionUrl.url;
+            console.log('[tikhub] 下载字幕:', srtUrl);
+            transcript = await fetchSubtitleText(srtUrl);
+        }
+    }
+
+    // 降级：用视频描述
+    if (!hasEnoughVideoContent(transcript) && detail.desc) {
+        transcript = detail.desc;
+    }
+
+    const title = detail.desc?.slice(0, 30) || detail.author?.nickname || '';
+
+    if (!hasEnoughVideoContent(transcript)) {
+        return { status: 'needs_text', reason: 'TikHub 未返回足够的字幕或描述文本', title, videoUrl };
+    }
+
+    console.log('[tikhub] 提取成功, 长度:', transcript.length);
+    return { status: 'ok', title, transcript };
+}
+
+async function transcribeAudioWithGroq(videoUrl) {
+    if (!GROQ_API_KEY) {
+        console.log('[groq] 未配置 GROQ_API_KEY，跳过音频转录');
+        return { status: 'needs_text', reason: '未配置 GROQ_API_KEY' };
+    }
+
+    console.log('[groq] 开始下载视频用于音频转录...');
+
+    // 下载视频文件
+    const videoBuffer = await new Promise((resolve, reject) => {
+        const target = new URL(videoUrl);
+        const lib = target.protocol === 'http:' ? http : https;
+        const req = lib.request({
+            hostname: target.hostname,
+            port: target.port,
+            path: `${target.pathname}${target.search}`,
+            method: 'GET',
+            headers: { 'User-Agent': 'Mozilla/5.0' }
+        }, (upstreamRes) => {
+            if ([301, 302, 303, 307, 308].includes(upstreamRes.statusCode) && upstreamRes.headers.location) {
+                upstreamRes.resume();
+                transcribeAudioWithGroq(upstreamRes.headers.location).then(resolve).catch(reject);
+                return;
+            }
+            const chunks = [];
+            upstreamRes.on('data', (chunk) => chunks.push(chunk));
+            upstreamRes.on('end', () => resolve(Buffer.concat(chunks)));
+        });
+        req.on('error', reject);
+        req.setTimeout(30000, () => { req.destroy(); reject(new Error('视频下载超时')); });
+        req.end();
+    });
+
+    console.log('[groq] 视频下载完成，大小:', videoBuffer.length, 'bytes');
+
+    // 构建 multipart/form-data 请求
+    const boundary = '----FormBoundary' + Math.random().toString(36).slice(2);
+    const model = 'whisper-large-v3-turbo';
+    const parts = [];
+
+    // file 字段
+    parts.push(
+        `--${boundary}\r\n`,
+        `Content-Disposition: form-data; name="file"; filename="video.mp4"\r\n`,
+        `Content-Type: video/mp4\r\n\r\n`
+    );
+    parts.push(videoBuffer);
+    parts.push('\r\n');
+
+    // model 字段
+    parts.push(
+        `--${boundary}\r\n`,
+        `Content-Disposition: form-data; name="model"\r\n\r\n`,
+        `${model}\r\n`
+    );
+
+    // language 字段
+    parts.push(
+        `--${boundary}\r\n`,
+        `Content-Disposition: form-data; name="language"\r\n\r\n`,
+        `zh\r\n`
+    );
+
+    // response_format 字段
+    parts.push(
+        `--${boundary}\r\n`,
+        `Content-Disposition: form-data; name="response_format"\r\n\r\n`,
+        `json\r\n`
+    );
+
+    parts.push(`--${boundary}--\r\n`);
+
+    // 合并所有部分为 Buffer
+    const bodyParts = parts.map(p => typeof p === 'string' ? Buffer.from(p) : p);
+    const body = Buffer.concat(bodyParts);
+
+    console.log('[groq] 调用 Whisper API...');
+
+    const result = await new Promise((resolve, reject) => {
+        const req = https.request({
+            hostname: 'api.groq.com',
+            path: '/openai/v1/audio/transcriptions',
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${GROQ_API_KEY}`,
+                'Content-Type': `multipart/form-data; boundary=${boundary}`,
+                'Content-Length': body.length
+            }
+        }, (upstreamRes) => {
+            let raw = '';
+            upstreamRes.on('data', (chunk) => { raw += chunk; });
+            upstreamRes.on('end', () => {
+                try {
+                    resolve({ statusCode: upstreamRes.statusCode, data: JSON.parse(raw || '{}') });
+                } catch {
+                    resolve({ statusCode: upstreamRes.statusCode, data: { raw } });
+                }
+            });
+        });
+        req.on('error', reject);
+        req.setTimeout(60000, () => { req.destroy(); reject(new Error('Groq API 超时')); });
+        req.write(body);
+        req.end();
+    });
+
+    console.log('[groq] Whisper 返回状态:', result.statusCode);
+
+    if (result.statusCode !== 200) {
+        console.log('[groq] 错误:', JSON.stringify(result.data).slice(0, 200));
+        return { status: 'needs_text', reason: `Groq Whisper 返回 ${result.statusCode}` };
+    }
+
+    const transcript = result.data.text || '';
+    console.log('[groq] 转录完成, 长度:', transcript.length);
+
+    if (!hasEnoughVideoContent(transcript)) {
+        return { status: 'needs_text', reason: '音频转录内容不足' };
+    }
+
+    return { status: 'ok', transcript };
+}
+
 async function handleExtractCard(req, res) {
     if (req.method !== 'POST') {
         return sendJson(res, 405, { error: 'Method Not Allowed' });
@@ -675,25 +918,93 @@ async function handleExtractCard(req, res) {
         let sourceType = 'pasted_text';
         let extractMeta = {};
 
-        if (videoLink && VIDEO_TEXT_API_URL) {
-            const videoText = await fetchVideoText(videoLink);
-            if (videoText.status !== 'ok') {
+        if (videoLink) {
+            // 优先使用 TikHub（抖音专用，速度快）
+            if (TIKHUB_API_KEY) {
+                const tikHubResult = await fetchVideoTextTikHub(videoLink);
+                if (tikHubResult.status === 'ok') {
+                    sourceText = tikHubResult.transcript;
+                    sourceType = 'video_api';
+                    extractMeta = { title: tikHubResult.title || '' };
+                } else {
+                    // TikHub 没拿到字幕，尝试音频转录（如果有视频链接）
+                    if (tikHubResult.videoUrl && GROQ_API_KEY) {
+                        console.log('[tikhub] 字幕不足，尝试音频转录...');
+                        const whisperResult = await transcribeAudioWithGroq(tikHubResult.videoUrl);
+                        if (whisperResult.status === 'ok') {
+                            sourceText = whisperResult.transcript;
+                            sourceType = 'video_api';
+                            extractMeta = { title: tikHubResult.title || '' };
+                        } else {
+                            console.log('[groq] 音频转录失败:', whisperResult.reason);
+                            // 音频转录也失败，降级到通用 API 或使用粘贴文案
+                            if (VIDEO_TEXT_API_URL) {
+                                const videoText = await fetchVideoText(videoLink);
+                                if (videoText.status === 'ok') {
+                                    sourceText = videoText.transcript;
+                                    sourceType = 'video_api';
+                                    extractMeta = { title: videoText.title || '' };
+                                } else if (!hasEnoughVideoContent(sourceText)) {
+                                    return sendJson(res, 200, {
+                                        status: 'needs_text',
+                                        video_link: videoLink,
+                                        reason: videoText.reason || '暂时无法提取视频完整文字。',
+                                        title: videoText.title || ''
+                                    });
+                                }
+                            } else if (!hasEnoughVideoContent(sourceText)) {
+                                return sendJson(res, 200, {
+                                    status: 'needs_text',
+                                    video_link: videoLink,
+                                    reason: whisperResult.reason || '暂时无法提取视频完整文字。'
+                                });
+                            }
+                        }
+                    } else if (VIDEO_TEXT_API_URL) {
+                        // 没有音频转录，降级到通用 API
+                        const videoText = await fetchVideoText(videoLink);
+                        if (videoText.status === 'ok') {
+                            sourceText = videoText.transcript;
+                            sourceType = 'video_api';
+                            extractMeta = { title: videoText.title || '' };
+                        } else if (!hasEnoughVideoContent(sourceText)) {
+                            return sendJson(res, 200, {
+                                status: 'needs_text',
+                                video_link: videoLink,
+                                reason: videoText.reason || '暂时无法提取视频完整文字。',
+                                title: videoText.title || ''
+                            });
+                        }
+                    } else if (!hasEnoughVideoContent(sourceText)) {
+                        return sendJson(res, 200, {
+                            status: 'needs_text',
+                            video_link: videoLink,
+                            reason: tikHubResult.reason || '暂时无法提取视频完整文字。'
+                        });
+                    }
+                }
+            } else if (VIDEO_TEXT_API_URL) {
+                // 没有 TikHub，用通用 API
+                const videoText = await fetchVideoText(videoLink);
+                if (videoText.status === 'ok') {
+                    sourceText = videoText.transcript;
+                    sourceType = 'video_api';
+                    extractMeta = { title: videoText.title || '' };
+                } else if (!hasEnoughVideoContent(sourceText)) {
+                    return sendJson(res, 200, {
+                        status: 'needs_text',
+                        video_link: videoLink,
+                        reason: videoText.reason || '暂时无法提取视频完整文字。',
+                        title: videoText.title || ''
+                    });
+                }
+            } else if (!hasEnoughVideoContent(sourceText)) {
                 return sendJson(res, 200, {
                     status: 'needs_text',
                     video_link: videoLink,
-                    reason: videoText.reason || '暂时无法提取视频完整文字。',
-                    title: videoText.title || ''
+                    reason: '未配置视频提取 API，请配置 TIKHUB_API_KEY 或 VIDEO_TEXT_API_URL。'
                 });
             }
-            sourceText = videoText.transcript;
-            sourceType = 'video_api';
-            extractMeta = { title: videoText.title || '' };
-        } else if (!hasEnoughVideoContent(sourceText) && videoLink) {
-            return sendJson(res, 200, {
-                status: 'needs_text',
-                video_link: videoLink,
-                reason: '未配置 VIDEO_TEXT_API_URL，暂时无法只通过链接提取视频文字。'
-            });
         }
 
         if (!hasEnoughVideoContent(sourceText)) {

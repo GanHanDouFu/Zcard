@@ -15,11 +15,12 @@ Zcard 是一个移动端优先的 Web 应用。它解决的问题很具体：刷
 5. 在编辑器里用类 WPS 的局部颜色标记圈出重点，AI 还能基于卡片主题生成补充内容。
 6. 现场网络或 API 不可用时，会自动使用本地演示模式生成卡片，保证 Demo 可继续展示。
 
-支持粘贴抖音视频链接自动提取字幕（需配置 BibiGPT API），也支持手动粘贴视频文案生成卡片。
+支持粘贴抖音视频链接自动提取字幕或音频转录（需配置 TikHub + Groq API），也支持手动粘贴视频文案生成卡片。
 
 ## 功能亮点
 
 - AI 生成知识卡片：从短视频文案中提炼结构化信息。
+- 视频链接自动提取：粘贴抖音链接，自动提取字幕或音频转录，无需手动复制文案。
 - 内容质量保护：仅链接或极短分享文案不会直接生成正式卡片。
 - 领域筛选和搜索：支持全部、收藏、未读、已读以及七类领域，可自定义新增分类。
 - 收藏与已读拆分：星星只代表收藏，`Get it` 只代表已读/进入复习池。
@@ -36,8 +37,8 @@ Zcard 是一个移动端优先的 Web 应用。它解决的问题很具体：刷
 ## 技术栈
 
 - 前端：原生 HTML、CSS、JavaScript（无框架）
-- 后端：Node.js 静态服务和 DeepSeek API 代理
-- AI：DeepSeek Chat Completions
+- 后端：Node.js 静态服务和 API 代理
+- AI：DeepSeek Chat Completions（卡片生成）、TikHub（字幕提取）、Groq Whisper（音频转录）
 - 图标：Lucide Icons CDN
 - 数据：浏览器 `localStorage`
 - 部署：Railway 自动部署（push 到 main 触发）
@@ -83,7 +84,14 @@ http://localhost:8080/
 PORT=8080
 DEEPSEEK_API_KEY=sk-your-deepseek-api-key
 
-# 视频文字提取（可选，支持粘贴抖音链接自动提取字幕）
+# TikHub 抖音视频解析（推荐，速度快，约1.5秒）
+TIKHUB_API_KEY=your-tikhub-api-key
+TIKHUB_API_BASE=https://api.tikhub.dev
+
+# Groq Whisper 音频转录（免费，用于没有字幕的视频）
+GROQ_API_KEY=your-groq-api-key
+
+# 视频文字提取（可选，如 BibiGPT，作为 TikHub 的降级方案）
 VIDEO_TEXT_API_URL=https://api.bibigpt.co/api/v1/summarizeWithConfig
 VIDEO_TEXT_API_KEY=your-bibigpt-api-token
 VIDEO_TEXT_API_METHOD=POST
@@ -95,9 +103,23 @@ VIDEO_TEXT_API_TEXT_PATHS=summary,transcript,subtitle,text,content
 
 ### 视频文字提取 API
 
-Zcard 支持通过第三方 API 从视频链接自动提取字幕/转录文本。目前支持 [BibiGPT](https://bibigpt.co) 作为视频文字提取服务。
+Zcard 支持通过第三方 API 从视频链接自动提取字幕/转录文本。采用多级降级方案：
 
-**获取 BibiGPT API Token：**
+1. **TikHub**（推荐，有字幕时约 1.5 秒）— 提取抖音视频已有的字幕
+2. **Groq Whisper**（免费，无字幕时约 8-15 秒）— 从视频音频中转录文字
+3. **BibiGPT**（备选）— 通用视频提取服务
+
+**TikHub（推荐）：**
+1. 访问 https://tikhub.io 并注册
+2. 获取 API Key
+3. 在 `.env` 中配置 `TIKHUB_API_KEY`
+
+**Groq Whisper（免费）：**
+1. 访问 https://console.groq.com 并注册
+2. 创建 API Key
+3. 在 `.env` 中配置 `GROQ_API_KEY`
+
+**BibiGPT（备选）：**
 1. 访问 https://bibigpt.co 并登录
 2. 进入「开放 API」页面
 3. 复制你的专属 API Token
@@ -106,8 +128,11 @@ Zcard 支持通过第三方 API 从视频链接自动提取字幕/转录文本�
 
 | 变量 | 说明 | 必填 |
 |------|------|------|
-| `VIDEO_TEXT_API_URL` | 视频提取 API 地址 | 否 |
-| `VIDEO_TEXT_API_KEY` | API Token | 否 |
+| `TIKHUB_API_KEY` | TikHub API Key（推荐） | 否 |
+| `TIKHUB_API_BASE` | TikHub API 域名，默认 `api.tikhub.dev` | 否 |
+| `GROQ_API_KEY` | Groq API Key（免费，用于无字幕视频） | 否 |
+| `VIDEO_TEXT_API_URL` | 通用视频提取 API 地址（如 BibiGPT） | 否 |
+| `VIDEO_TEXT_API_KEY` | 通用 API Token | 否 |
 | `VIDEO_TEXT_API_METHOD` | 请求方法（POST） | 否 |
 | `VIDEO_TEXT_API_AUTH_HEADER` | 认证头名称 | 否 |
 | `VIDEO_TEXT_API_AUTH_PREFIX` | 认证前缀（Bearer） | 否 |
@@ -161,7 +186,9 @@ https://zcard-production.up.railway.app/
 
 - 在 Railway 项目变量里配置以下环境变量：
   - `DEEPSEEK_API_KEY`（必填）
-  - `VIDEO_TEXT_API_URL`、`VIDEO_TEXT_API_KEY` 等（可选，用于视频链接自动提取字幕）
+  - `TIKHUB_API_KEY`（推荐，抖音视频字幕提取）
+  - `GROQ_API_KEY`（推荐，免费音频转录，用于无字幕视频）
+  - `VIDEO_TEXT_API_URL`、`VIDEO_TEXT_API_KEY` 等（可选，通用视频提取服务）
 - Railway 会自动检测 Node.js 项目并执行 `npm start`。
 - 如果浏览器看到的还是旧版本，加 query 参数强制刷新：`?v=20260528`。
 
