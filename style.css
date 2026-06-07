@@ -1845,12 +1845,12 @@ textarea::placeholder {
 .graph-list-page {
     width: min(100%, 680px);
     margin: 0 auto;
-    padding: 2px 0 20px;
+    padding: 0;
 }
 
 .graph-card-head {
     padding: 0 2px;
-    margin: 14px 0 16px;
+    margin: 4px 0 8px;
     align-items: center;
 }
 
@@ -1926,7 +1926,7 @@ textarea::placeholder {
 /* 知识图谱 - 思维导图布局 */
 .graph-mindmap {
     position: relative;
-    padding: 24px 0 32px;
+    padding: 8px 0 16px;
 }
 
 .graph-mindmap-center {
@@ -1934,8 +1934,8 @@ textarea::placeholder {
     font-size: 18px;
     font-weight: 700;
     color: var(--color-accent, #d97757);
-    padding: 16px 24px;
-    margin: 0 auto 20px;
+    padding: 12px 20px;
+    margin: 0 auto 12px;
     max-width: 200px;
     background: var(--color-accent-light, #fef3ed);
     border-radius: 20px;
@@ -5032,7 +5032,7 @@ textarea::placeholder {
     }
 
     .graph-card-head {
-        margin-bottom: 10px;
+        margin-bottom: 4px;
     }
 
     .graph-card-list {
@@ -5044,11 +5044,11 @@ textarea::placeholder {
 
     .graph-list-page {
         width: 100%;
-        padding: 0 0 18px;
+        padding: 0;
     }
 
     .graph-list-page .graph-card-head {
-        margin: 12px 0 14px;
+        margin: 4px 0 6px;
     }
 
     .graph-card-list-page {
