@@ -2,6 +2,8 @@ const http = require('http');
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
+const { execFile } = require('child_process');
+const ffmpegPath = require('ffmpeg-static');
 
 function loadLocalEnv() {
     const envPath = path.join(__dirname, '.env');
@@ -53,6 +55,7 @@ const VIDEO_TEXT_API_TIMEOUT_MS = Number(process.env.VIDEO_TEXT_API_TIMEOUT_MS |
 const TIKHUB_API_KEY = process.env.TIKHUB_API_KEY || '';
 const TIKHUB_API_BASE = (process.env.TIKHUB_API_BASE || 'https://api.tikhub.dev').replace(/\/+$/, '');
 const GROQ_API_KEY = process.env.GROQ_API_KEY || '';
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
 const VIDEO_TEXT_API_TEXT_PATHS = (process.env.VIDEO_TEXT_API_TEXT_PATHS || '')
     .split(',')
     .map((item) => item.trim())
@@ -785,22 +788,229 @@ async function transcribeAudioWithGroq(videoUrl) {
         return { status: 'needs_text', reason: '未配置 GROQ_API_KEY' };
     }
 
-    console.log('[groq] 开始下载视频用于音频转录...');
+    const tmpDir = path.join(__dirname, '.tmp');
+    if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
+    const ts = Date.now();
+    const videoPath = path.join(tmpDir, `video_${ts}.mp4`);
+    const audioPath = path.join(tmpDir, `audio_${ts}.mp3`);
 
-    // 下载视频文件
+    function cleanup() {
+        try { fs.unlinkSync(videoPath); } catch {}
+        try { fs.unlinkSync(audioPath); } catch {}
+    }
+
+    try {
+        // 0. 先检查文件大小
+        const fileSize = await new Promise((resolve) => {
+            const target = new URL(videoUrl);
+            const lib = target.protocol === 'http:' ? http : https;
+            const req = lib.request({
+                hostname: target.hostname,
+                port: target.port,
+                path: `${target.pathname}${target.search}`,
+                method: 'HEAD',
+                headers: { 'User-Agent': 'Mozilla/5.0' }
+            }, (upstreamRes) => {
+                upstreamRes.resume();
+                resolve(parseInt(upstreamRes.headers['content-length'] || '-1', 10));
+            });
+            req.on('error', () => resolve(-1));
+            req.setTimeout(5000, () => { req.destroy(); resolve(-1); });
+            req.end();
+        });
+
+        const MAX_VIDEO_SIZE = 30 * 1024 * 1024; // 30MB 以上只下载部分
+        const isLarge = fileSize > MAX_VIDEO_SIZE;
+
+        if (isLarge) {
+            console.log(`[groq] 视频较大 (${(fileSize / 1024 / 1024).toFixed(1)}MB)，使用部分下载`);
+        }
+
+        // 1. 下载视频（大文件只下载前 15MB，覆盖大部分短视频音频）
+        console.log('[groq] 开始下载视频...');
+        const videoBuffer = await new Promise((resolve, reject) => {
+            const target = new URL(videoUrl);
+            const lib = target.protocol === 'http:' ? http : https;
+            const headers = { 'User-Agent': 'Mozilla/5.0' };
+            if (isLarge) {
+                headers['Range'] = 'bytes=0-15728639'; // 前 15MB
+            }
+            const req = lib.request({
+                hostname: target.hostname,
+                port: target.port,
+                path: `${target.pathname}${target.search}`,
+                method: 'GET',
+                headers
+            }, (upstreamRes) => {
+                if ([301, 302, 303, 307, 308].includes(upstreamRes.statusCode) && upstreamRes.headers.location) {
+                    upstreamRes.resume();
+                    transcribeAudioWithGroq(upstreamRes.headers.location).then(resolve).catch(reject);
+                    return;
+                }
+                const chunks = [];
+                upstreamRes.on('data', (chunk) => chunks.push(chunk));
+                upstreamRes.on('end', () => resolve(Buffer.concat(chunks)));
+            });
+            req.on('error', reject);
+            req.setTimeout(45000, () => { req.destroy(); reject(new Error('视频下载超时')); });
+            req.end();
+        });
+
+        console.log('[groq] 视频下载完成，大小:', videoBuffer.length, 'bytes');
+        fs.writeFileSync(videoPath, videoBuffer);
+
+        // 2. ffmpeg 提取音频
+        console.log('[groq] ffmpeg 提取音频...');
+        await new Promise((resolve, reject) => {
+            execFile(ffmpegPath, [
+                '-i', videoPath,
+                '-vn',                // 不要视频
+                '-acodec', 'libmp3lame',
+                '-ar', '16000',       // 16kHz 采样率，Whisper 最佳
+                '-ac', '1',           // 单声道
+                '-q:a', '4',          // 低质量但体积小
+                '-y',                 // 覆盖已有文件
+                audioPath
+            ], { timeout: 30000 }, (err, stdout, stderr) => {
+                if (err) reject(new Error(`ffmpeg 失败: ${err.message}`));
+                else resolve();
+            });
+        });
+
+        const audioSize = fs.statSync(audioPath).size;
+        console.log('[groq] 音频提取完成，大小:', audioSize, 'bytes');
+
+        if (audioSize > 24 * 1024 * 1024) {
+            cleanup();
+            return { status: 'needs_text', reason: '音频文件仍然过大' };
+        }
+
+        // 3. 发送音频给 Groq Whisper
+        const audioBuffer = fs.readFileSync(audioPath);
+        const boundary = '----FormBoundary' + Math.random().toString(36).slice(2);
+        const model = 'whisper-large-v3-turbo';
+        const parts = [];
+
+        parts.push(
+            `--${boundary}\r\n`,
+            `Content-Disposition: form-data; name="file"; filename="audio.mp3"\r\n`,
+            `Content-Type: audio/mpeg\r\n\r\n`
+        );
+        parts.push(audioBuffer);
+        parts.push('\r\n');
+
+        parts.push(
+            `--${boundary}\r\n`,
+            `Content-Disposition: form-data; name="model"\r\n\r\n`,
+            `${model}\r\n`
+        );
+        parts.push(
+            `--${boundary}\r\n`,
+            `Content-Disposition: form-data; name="language"\r\n\r\n`,
+            `zh\r\n`
+        );
+        parts.push(
+            `--${boundary}\r\n`,
+            `Content-Disposition: form-data; name="response_format"\r\n\r\n`,
+            `json\r\n`
+        );
+        parts.push(`--${boundary}--\r\n`);
+
+        const bodyParts = parts.map(p => typeof p === 'string' ? Buffer.from(p) : p);
+        const body = Buffer.concat(bodyParts);
+
+        console.log('[groq] 调用 Whisper API...');
+
+        const result = await new Promise((resolve, reject) => {
+            const req = https.request({
+                hostname: 'api.groq.com',
+                path: '/openai/v1/audio/transcriptions',
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${GROQ_API_KEY}`,
+                    'Content-Type': `multipart/form-data; boundary=${boundary}`,
+                    'Content-Length': body.length
+                }
+            }, (upstreamRes) => {
+                let raw = '';
+                upstreamRes.on('data', (chunk) => { raw += chunk; });
+                upstreamRes.on('end', () => {
+                    try {
+                        resolve({ statusCode: upstreamRes.statusCode, data: JSON.parse(raw || '{}') });
+                    } catch {
+                        resolve({ statusCode: upstreamRes.statusCode, data: { raw } });
+                    }
+                });
+            });
+            req.on('error', reject);
+            req.setTimeout(60000, () => { req.destroy(); reject(new Error('Groq API 超时')); });
+            req.write(body);
+            req.end();
+        });
+
+        console.log('[groq] Whisper 返回状态:', result.statusCode);
+
+        if (result.statusCode !== 200) {
+            console.log('[groq] 错误:', JSON.stringify(result.data).slice(0, 200));
+            cleanup();
+            return { status: 'needs_text', reason: `Groq Whisper 返回 ${result.statusCode}` };
+        }
+
+        const transcript = result.data.text || '';
+        console.log('[groq] 转录完成, 长度:', transcript.length);
+        cleanup();
+
+        if (!hasEnoughVideoContent(transcript)) {
+            return { status: 'needs_text', reason: '音频转录内容不足' };
+        }
+
+        return { status: 'ok', transcript };
+    } catch (e) {
+        cleanup();
+        throw e;
+    }
+}
+
+async function analyzeVideoWithGemini(videoUrl, title) {
+    if (!GEMINI_API_KEY) {
+        return { status: 'needs_text', reason: '未配置 GEMINI_API_KEY' };
+    }
+
+    // 检查文件大小
+    const fileSize = await new Promise((resolve) => {
+        const target = new URL(videoUrl);
+        const lib = target.protocol === 'http:' ? http : https;
+        const req = lib.request({
+            hostname: target.hostname, port: target.port,
+            path: `${target.pathname}${target.search}`,
+            method: 'HEAD', headers: { 'User-Agent': 'Mozilla/5.0' }
+        }, (upstreamRes) => {
+            upstreamRes.resume();
+            resolve(parseInt(upstreamRes.headers['content-length'] || '-1', 10));
+        });
+        req.on('error', () => resolve(-1));
+        req.setTimeout(5000, () => { req.destroy(); resolve(-1); });
+        req.end();
+    });
+
+    const MAX_GEMINI_VIDEO = 30 * 1024 * 1024; // 30MB 以内直接传给 Gemini
+    if (fileSize > MAX_GEMINI_VIDEO) {
+        console.log(`[gemini] 视频过大 (${(fileSize / 1024 / 1024).toFixed(1)}MB)，跳过`);
+        return { status: 'needs_text', reason: '视频文件过大，无法用 Gemini 分析' };
+    }
+
+    console.log('[gemini] 下载视频用于分析...');
     const videoBuffer = await new Promise((resolve, reject) => {
         const target = new URL(videoUrl);
         const lib = target.protocol === 'http:' ? http : https;
         const req = lib.request({
-            hostname: target.hostname,
-            port: target.port,
+            hostname: target.hostname, port: target.port,
             path: `${target.pathname}${target.search}`,
-            method: 'GET',
-            headers: { 'User-Agent': 'Mozilla/5.0' }
+            method: 'GET', headers: { 'User-Agent': 'Mozilla/5.0' }
         }, (upstreamRes) => {
             if ([301, 302, 303, 307, 308].includes(upstreamRes.statusCode) && upstreamRes.headers.location) {
                 upstreamRes.resume();
-                transcribeAudioWithGroq(upstreamRes.headers.location).then(resolve).catch(reject);
+                analyzeVideoWithGemini(upstreamRes.headers.location, title).then(resolve).catch(reject);
                 return;
             }
             const chunks = [];
@@ -808,64 +1018,56 @@ async function transcribeAudioWithGroq(videoUrl) {
             upstreamRes.on('end', () => resolve(Buffer.concat(chunks)));
         });
         req.on('error', reject);
-        req.setTimeout(30000, () => { req.destroy(); reject(new Error('视频下载超时')); });
+        req.setTimeout(40000, () => { req.destroy(); reject(new Error('视频下载超时')); });
         req.end();
     });
 
-    console.log('[groq] 视频下载完成，大小:', videoBuffer.length, 'bytes');
+    console.log('[gemini] 视频下载完成，大小:', videoBuffer.length, 'bytes');
+    const base64Video = videoBuffer.toString('base64');
 
-    // 构建 multipart/form-data 请求
-    const boundary = '----FormBoundary' + Math.random().toString(36).slice(2);
-    const model = 'whisper-large-v3-turbo';
-    const parts = [];
+    const prompt = `你是一个专业的知识卡片整理助手。请分析这个视频的内容，生成一张结构化的知识卡片。
 
-    // file 字段
-    parts.push(
-        `--${boundary}\r\n`,
-        `Content-Disposition: form-data; name="file"; filename="video.mp4"\r\n`,
-        `Content-Type: video/mp4\r\n\r\n`
-    );
-    parts.push(videoBuffer);
-    parts.push('\r\n');
+要求：
+- 只基于视频中的实际内容总结，不要自行补充或推测
+- 生成 4-7 个 key_points，每个要点要详细、有深度、有具体例子或解释
+- core_point 要概括核心观点，言之有物
+- 每个 key_point 的 heading 简洁（2-6字），content 详细（80-200字）
 
-    // model 字段
-    parts.push(
-        `--${boundary}\r\n`,
-        `Content-Disposition: form-data; name="model"\r\n\r\n`,
-        `${model}\r\n`
-    );
+请用以下 JSON 格式返回：
+{
+  "core_point": "核心观点总结",
+  "key_points": [
+    {"heading": "要点标题", "content": "详细内容"}
+  ],
+  "category": "建议分类"
+}
 
-    // language 字段
-    parts.push(
-        `--${boundary}\r\n`,
-        `Content-Disposition: form-data; name="language"\r\n\r\n`,
-        `zh\r\n`
-    );
+视频标题：${title || '未知'}`;
 
-    // response_format 字段
-    parts.push(
-        `--${boundary}\r\n`,
-        `Content-Disposition: form-data; name="response_format"\r\n\r\n`,
-        `json\r\n`
-    );
-
-    parts.push(`--${boundary}--\r\n`);
-
-    // 合并所有部分为 Buffer
-    const bodyParts = parts.map(p => typeof p === 'string' ? Buffer.from(p) : p);
-    const body = Buffer.concat(bodyParts);
-
-    console.log('[groq] 调用 Whisper API...');
+    console.log('[gemini] 调用 Gemini API 分析视频...');
 
     const result = await new Promise((resolve, reject) => {
+        const postData = JSON.stringify({
+            contents: [{
+                parts: [
+                    { text: prompt },
+                    { inlineData: { mimeType: 'video/mp4', data: base64Video } }
+                ]
+            }],
+            generationConfig: {
+                temperature: 0.3,
+                maxOutputTokens: 2048
+            }
+        });
+
         const req = https.request({
-            hostname: 'api.groq.com',
-            path: '/openai/v1/audio/transcriptions',
+            hostname: 'generativelanguage.googleapis.com',
+            path: '/v1beta/models/gemini-1.5-flash:generateContent',
             method: 'POST',
             headers: {
-                'Authorization': `Bearer ${GROQ_API_KEY}`,
-                'Content-Type': `multipart/form-data; boundary=${boundary}`,
-                'Content-Length': body.length
+                'Content-Type': 'application/json',
+                'X-goog-api-key': GEMINI_API_KEY,
+                'Content-Length': Buffer.byteLength(postData)
             }
         }, (upstreamRes) => {
             let raw = '';
@@ -879,26 +1081,39 @@ async function transcribeAudioWithGroq(videoUrl) {
             });
         });
         req.on('error', reject);
-        req.setTimeout(60000, () => { req.destroy(); reject(new Error('Groq API 超时')); });
-        req.write(body);
+        req.setTimeout(60000, () => { req.destroy(); reject(new Error('Gemini API 超时')); });
+        req.write(postData);
         req.end();
     });
 
-    console.log('[groq] Whisper 返回状态:', result.statusCode);
+    console.log('[gemini] API 返回状态:', result.statusCode);
 
     if (result.statusCode !== 200) {
-        console.log('[groq] 错误:', JSON.stringify(result.data).slice(0, 200));
-        return { status: 'needs_text', reason: `Groq Whisper 返回 ${result.statusCode}` };
+        console.log('[gemini] 错误:', JSON.stringify(result.data).slice(0, 300));
+        return { status: 'needs_text', reason: `Gemini API 返回 ${result.statusCode}` };
     }
 
-    const transcript = result.data.text || '';
-    console.log('[groq] 转录完成, 长度:', transcript.length);
+    const text = result.data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    console.log('[gemini] 返回内容长度:', text.length);
 
-    if (!hasEnoughVideoContent(transcript)) {
-        return { status: 'needs_text', reason: '音频转录内容不足' };
+    if (!text) {
+        return { status: 'needs_text', reason: 'Gemini 未返回内容' };
     }
 
-    return { status: 'ok', transcript };
+    // 尝试提取 JSON
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+        return { status: 'needs_text', reason: 'Gemini 返回格式异常' };
+    }
+
+    try {
+        const card = JSON.parse(jsonMatch[0]);
+        if (card.core_point && card.key_points && card.key_points.length > 0) {
+            return { status: 'ok', card, title };
+        }
+    } catch {}
+
+    return { status: 'needs_text', reason: 'Gemini 返回的 JSON 解析失败' };
 }
 
 async function handleExtractCard(req, res) {
@@ -934,10 +1149,44 @@ async function handleExtractCard(req, res) {
                     sourceType = 'video_api';
                     extractMeta = { title: tikHubResult.title || '' };
                 } else {
-                    // TikHub 没拿到字幕，尝试音频转录（如果有视频链接）
+                    // TikHub 没拿到字幕，先尝试 Gemini 直接分析视频
+                    if (tikHubResult.videoUrl && GEMINI_API_KEY) {
+                        console.log('[tikhub] 字幕不足，尝试 Gemini 视频分析...');
+                        let geminiResult;
+                        try {
+                            geminiResult = await analyzeVideoWithGemini(tikHubResult.videoUrl, tikHubResult.title);
+                        } catch (e) {
+                            console.log('[gemini] 分析异常:', e.message);
+                            geminiResult = { status: 'needs_text', reason: e.message };
+                        }
+                        if (geminiResult.status === 'ok' && geminiResult.card) {
+                            // Gemini 直接返回了卡片，不需要再调 DeepSeek
+                            const card = geminiResult.card;
+                            const result = {
+                                status: 'ok',
+                                core_point: card.core_point,
+                                key_points: card.key_points,
+                                category: card.category || '默认',
+                                source_type: 'video_api',
+                                video_link: videoLink,
+                                title: geminiResult.title || ''
+                            };
+                            if (cacheKey) extractCache.set(cacheKey, result);
+                            return sendJson(res, 200, result);
+                        }
+                        console.log('[gemini] 分析失败:', geminiResult.reason, '降级到 Groq...');
+                    }
+
+                    // Gemini 失败，尝试音频转录
                     if (tikHubResult.videoUrl && GROQ_API_KEY) {
-                        console.log('[tikhub] 字幕不足，尝试音频转录...');
-                        const whisperResult = await transcribeAudioWithGroq(tikHubResult.videoUrl);
+                        console.log('[tikhub] 尝试 Groq 音频转录...');
+                        let whisperResult;
+                        try {
+                            whisperResult = await transcribeAudioWithGroq(tikHubResult.videoUrl);
+                        } catch (e) {
+                            console.log('[groq] 音频转录异常:', e.message);
+                            whisperResult = { status: 'needs_text', reason: e.message };
+                        }
                         if (whisperResult.status === 'ok') {
                             sourceText = whisperResult.transcript;
                             sourceType = 'video_api';

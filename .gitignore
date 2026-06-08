@@ -1,6 +1,7 @@
 .env
 node_modules/
 npm-debug.log*
+.tmp/
 
 # 本地验证和浏览器调试产物
 artifacts/
