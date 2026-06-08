@@ -3538,7 +3538,7 @@ function cleanSharedText(text) {
 
 async function callExtractCard(input) {
     const controller = new AbortController();
-    const timeoutId = window.setTimeout(() => controller.abort(), 35000);
+    const timeoutId = window.setTimeout(() => controller.abort(), 120000);
     let res;
     try {
         res = await fetch(EXTRACT_CARD_API_URL, {
