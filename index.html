@@ -9,7 +9,7 @@
     <title>Zcard - 让每一条视频都变成你的知识</title>
     <link rel="stylesheet" href="style.css?v=20260519-cleanup">
     <!-- 引入 Lucide Icons -->
-    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="lucide.min.js"></script>
 </head>
 <body>
     <div class="app-shell">
@@ -91,7 +91,7 @@
                                     <span id="review-back-meta">今日队列</span>
                                 </div>
                                 <h3 id="review-back-title">开始今日复习</h3>
-                                <p id="review-back-core">先完成左滑右滑，再进入理解题答题。</p>
+                                <p id="review-back-core">左滑理解，右滑没理解，完成今日回顾打卡。</p>
                                 <div class="review-actions">
                                     <button id="btn-review-do" class="btn btn-primary">开始复习</button>
                                     <button id="btn-review-skip" class="btn btn-secondary">跳过这张</button>
@@ -138,7 +138,7 @@
                     <div class="swipe-done hidden" id="swipe-done">
                         <div class="swipe-done-icon">✓</div>
                         <div class="swipe-done-text">滑动复习完成</div>
-                        <div class="swipe-done-sub">点击开始答题，检验是否真正理解。</div>
+                        <div class="swipe-done-sub">回顾完成，点击确认打卡。</div>
                         <div class="swipe-done-stats">
                             <div class="swipe-stat">
                                 <span class="swipe-stat-num" id="swipe-stat-understood">0</span>
@@ -150,7 +150,7 @@
                                 <span class="swipe-stat-label">没理解</span>
                             </div>
                         </div>
-                        <button class="swipe-done-btn" id="btn-swipe-done-close">点击开始答题</button>
+                        <button class="swipe-done-btn" id="btn-swipe-done-close">确认打卡</button>
                     </div>
 
                     <div class="quiz-stage hidden" id="quiz-stage">
@@ -181,11 +181,11 @@
                         <div class="quiz-complete-stats">
                             <div class="quiz-complete-stat">
                                 <span id="quiz-complete-correct" class="quiz-complete-num">0</span>
-                                <span class="quiz-complete-label">答对</span>
+                                <span class="quiz-complete-label">理解</span>
                             </div>
                             <div class="quiz-complete-stat">
                                 <span id="quiz-complete-wrong" class="quiz-complete-num">0</span>
-                                <span class="quiz-complete-label">答错</span>
+                                <span class="quiz-complete-label">没理解</span>
                             </div>
                             <div class="quiz-complete-stat">
                                 <span id="quiz-complete-streak" class="quiz-complete-num">0</span>

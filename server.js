@@ -339,6 +339,11 @@ function getJson(url, query = {}, headers = {}, timeoutMs = 30000, redirectCount
 }
 
 function buildCardPrompt(sourceText, videoLink = '') {
+    // 超长文本截断，避免超出模型上下文
+    if (sourceText.length > 12000) {
+        sourceText = sourceText.slice(0, 12000) + '\n...(内容过长已截断)';
+    }
+
     const textLen = sourceText.length;
     let pointCount, pointLen, coreLen;
 
@@ -350,27 +355,55 @@ function buildCardPrompt(sourceText, videoLink = '') {
         pointCount = '3-5';
         pointLen = '100-180';
         coreLen = '100-180';
+    } else if (textLen < 3000) {
+        pointCount = '4-6';
+        pointLen = '100-200';
+        coreLen = '100-200';
     } else {
-        pointCount = '4-7';
+        pointCount = '5-7';
         pointLen = '120-250';
         coreLen = '120-250';
     }
 
-    return `你是一个专业的知识卡片整理助手。基于以下内容生成一张结构化的知识卡片。
+    return `你是一个专业的知识提炼助手。用户会粘贴一段原始文字（可能是视频文案、文章、AI对话、笔记等），你的任务是**深度加工**这些内容，提炼出一张高质量知识卡片。
 
-要求：
-- 只基于提供的内容总结，不要自行补充或推测
-- ${pointCount}个key_points，每个要点要详细、有深度、有具体例子或解释
-- core_point 要概括核心观点，言之有物，不要空泛
-- 如果内容中有金句或经典表达，提取到 quote 字段
-- 如果内容中有可执行的建议，提取到 action 字段
-- 根据内容自动判断领域分类
+核心原则：
+- **提炼而非搬运**：去掉口水话、重复内容、广告、无关信息，只保留有价值的知识点
+- **重新组织**：不要按原文顺序照搬，要按逻辑重新归纳为清晰的要点体系
+- **深入洞察**：每个要点要提炼出”为什么”和”怎么做”，而不只是”是什么”
+- **精炼表达**：用你自己的话重新概括，比原文更简洁、更有条理
+- 如果原文信息量太少（比如只有一两句话），生成 2 个要点即可，不要注水
+
+要点分级要求：
+- 第1个要点必须是原文的**核心概念/主要结论**（最重要的洞察）
+- 后面的要点按**重要性递减排列**，次要观点放后面
+- 每个要点的 sub_points 也要分层：第1条是核心解释，后面是补充例子或延伸
+
+具体要求：
+- 生成 ${pointCount} 个 key_points，每个要点有 heading 小标题和 sub_points 子论点
+- heading 是你提炼出的核心概念（4-12字），不是原文的标题搬运
+- 每个 key_point 的 sub_points 包含 2-4 条，每条${pointLen}字
+- sub_points 第1条写核心解释/定义，后续写具体例子、数据或方法
+- sub_points 是字符串数组，不要带任何前缀符号
+- core_point 用${coreLen}字概括这段内容最核心的一个洞察
+- quote 提取原文中最精彩的一句话（如果有）
+- action 提取一条最可执行的行动建议（如果有）
+- category 根据内容判断领域
 
 输出JSON格式：
-{“title”:”8-16字标题”,”core_point”:”${coreLen}字核心观点”,”key_points”:[{“heading”:”4-12字小标题”,”content”:”${pointLen}字详细内容”}],”quote”:”金句（可选）”,”action”:”行动建议（可选）”,”category”:”领域分类”,”video_link”:”${videoLink}”}
+{“title”:”8-16字标题”,”core_point”:”${coreLen}字核心观点”,”key_points”:[{“heading”:”4-12字小标题”,”sub_points”:[“核心解释”,”具体例子或方法”]}],”quote”:”金句（可选）”,”action”:”行动建议（可选）”,”category”:”领域分类”,”video_link”:”${videoLink}”}
 
-内容：
+原始内容：
 ${sourceText}`;
+}
+
+function hasGarbledText(text) {
+    return String(text || '').includes('\uFFFD');
+}
+
+function hasGarbledInObject(obj) {
+    const str = JSON.stringify(obj || {});
+    return hasGarbledText(str);
 }
 
 async function callDeepSeekJson(prompt, retryCount = 0) {
@@ -383,7 +416,7 @@ async function callDeepSeekJson(prompt, retryCount = 0) {
             model: 'deepseek-chat',
             messages: [{ role: 'user', content: prompt }],
             response_format: { type: 'json_object' },
-            max_tokens: 2048,
+            max_tokens: 3000,
             temperature: 0.3
         }, {
             Authorization: `Bearer ${DEEPSEEK_API_KEY}`
@@ -395,7 +428,16 @@ async function callDeepSeekJson(prompt, retryCount = 0) {
 
         const content = result.data?.choices?.[0]?.message?.content || '';
         if (!content) throw new Error('AI 返回内容为空');
-        return parseJsonObject(content);
+        const parsed = parseJsonObject(content);
+
+        // 检测乱码，自动重试
+        if (hasGarbledInObject(parsed) && retryCount < 2) {
+            console.log(`[deepseek] 检测到乱码，重试第 ${retryCount + 1} 次...`);
+            await new Promise(resolve => setTimeout(resolve, 500));
+            return callDeepSeekJson(prompt, retryCount + 1);
+        }
+
+        return parsed;
     } catch (error) {
         if (retryCount < 1 && (error.message.includes('timeout') || error.message.includes('ECONNRESET') || error.message.includes('500'))) {
             console.log(`[deepseek] 重试第 ${retryCount + 1} 次...`);
@@ -457,7 +499,7 @@ function createFallbackExtractedCard(sourceText, videoLink = '', meta = {}, erro
         core_point: core,
         key_points: points.slice(0, 4).map((point, index) => ({
             heading: headings[index],
-            content: point.length < 36 ? `${point}。这个信息可以作为之后复盘原视频的线索。` : point.slice(0, 180)
+            sub_points: [point.length < 36 ? `${point}。这个信息可以作为之后复盘原视频的线索。` : point.slice(0, 180)]
         })),
         quote: '',
         action: '',
@@ -1029,15 +1071,16 @@ async function analyzeVideoWithGemini(videoUrl, title) {
 
 要求：
 - 只基于视频中的实际内容总结，不要自行补充或推测
-- 生成 4-7 个 key_points，每个要点要详细、有深度、有具体例子或解释
+- 生成 4-7 个 key_points，每个要点有 heading 小标题和 sub_points 子论点数组
+- 每个 key_point 的 heading 简洁（2-6字），sub_points 包含 2-4 条具体观察，每条 80-200 字
+- sub_points 是字符串数组，不要带任何前缀符号
 - core_point 要概括核心观点，言之有物
-- 每个 key_point 的 heading 简洁（2-6字），content 详细（80-200字）
 
 请用以下 JSON 格式返回：
 {
   "core_point": "核心观点总结",
   "key_points": [
-    {"heading": "要点标题", "content": "详细内容"}
+    {"heading": "要点标题", "sub_points": ["分论点1详细内容", "分论点2详细内容"]}
   ],
   "category": "建议分类"
 }
@@ -1130,7 +1173,8 @@ async function handleExtractCard(req, res) {
 
         const links = extractLinks(input);
         const videoLink = links[0] || '';
-        const cleanedText = cleanSharedText(input);
+        // 纯文字输入只做基础清理，保留原始内容；视频链接才做激进清理
+        const cleanedText = videoLink ? cleanSharedText(input) : input.replace(/\s+/g, ' ').trim();
         const cacheKey = videoLink || cleanedText;
         if (cacheKey && extractCache.has(cacheKey)) {
             return sendJson(res, 200, { ...extractCache.get(cacheKey), cached: true });

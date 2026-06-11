@@ -30,26 +30,10 @@ let pendingEditMarks = {};
 let reviewCardFlipped = false;
 let activeReviewIds = [];
 let swipeReviewResults = {};
-let quizQueue = [];
-let quizIndex = 0;
-let quizCorrect = 0;
-let quizWrong = 0;
-let quizLocked = false;
-let currentQuizQuestion = null;
-let quizTransitionTimer = null;
-
 const REVIEW_SETTINGS_KEY = 'zcard_review_settings_v1';
 const REVIEW_SESSION_KEY = 'zcard_review_session_v1';
 const REVIEW_STATS_KEY = 'zcard_review_stats_v1';
 const REVIEW_RING_GOAL = 7;
-const QUIZ_FALLBACK_OPTIONS = [
-    '强调先理解核心结论，再开始实践。',
-    '重点不是做得更多，而是做得更有效。',
-    '关键在于长期坚持，而不是短期冲刺。',
-    '把复杂问题拆成小步骤，执行门槛会更低。',
-    '先找到最重要的一点，再逐步扩展细节。',
-    '与其被动接受信息，不如主动形成判断。'
-];
 const REQUIRED_DEMO_CARD_IDS = ['demo_huayi_downfall', 'demo_huayi_bankruptcy'];
 
 // 检查 localStorage 是否可用
@@ -316,8 +300,14 @@ function pointHeading(point, index) {
     return derivePointParts(point, index).heading;
 }
 
+function cleanSubPoints(arr) {
+    return (Array.isArray(arr) ? arr : []).map(s => String(s).replace(/^◆\s*/, '').trim()).filter(Boolean);
+}
+
 function pointContent(point, index = 0) {
     if (point && typeof point === 'object') {
+        const cleaned = cleanSubPoints(point.sub_points);
+        if (cleaned.length > 0) return cleaned.join('；');
         const content = String(point.content || point.detail || point.description || point.text || '').trim();
         let cleanContent = derivePointParts(content, index).content;
         const heading = String(point.heading || point.title || '').trim();
@@ -336,15 +326,6 @@ function pointContent(point, index = 0) {
     return derivePointParts(point, index).content;
 }
 
-function pointContentWithMarks(point, index = 0) {
-    if (point && typeof point === 'object') {
-        return pointContent(point, index);
-    }
-    const text = String(point || '').trim();
-    const stripped = text.replace(/^(?:[一二三四五六七八九十]+[、.．]|\d+[、.．]|要点\s*\d+[：:、.．]?)\s*/, '').trim();
-    const colon = stripped.match(/^([^：:。；;]{2,18})[：:]\s*(.+)$/);
-    return colon ? colon[2].trim() : stripped;
-}
 
 function pointPlainText(point, index = 0) {
     const heading = pointHeading(point, index);
@@ -355,10 +336,21 @@ function pointPlainText(point, index = 0) {
 }
 
 function normalizeKeyPoint(point, index = 0) {
-    return {
-        heading: pointHeading(point, index),
-        content: pointContent(point, index)
-    };
+    if (point && typeof point === 'object') {
+        const heading = pointHeading(point, index);
+        let sub_points = cleanSubPoints(point.sub_points);
+        if (sub_points.length === 0) {
+            const content = pointContent(point, index);
+            if (content) {
+                sub_points = content.split(/[。；;\n]/).map(s => s.trim()).filter(s => s.length > 4);
+                if (sub_points.length === 0) sub_points = [content];
+            }
+        }
+        return { heading, sub_points, content: sub_points.join('；') };
+    }
+    const text = String(point || '').trim();
+    const sub_points = text.split(/[。；;\n]/).map(s => s.trim().replace(/^◆\s*/, '')).filter(s => s.length > 4);
+    return { heading: pointHeading(point, index), sub_points: sub_points.length ? sub_points : [text], content: text };
 }
 
 function isLocalAppUrl(value) {
@@ -392,38 +384,27 @@ function renderSourceLink(card) {
     `;
 }
 
-function getAdjustedMarksForSegment(ranges, segmentStart, segmentText) {
-    const segmentEnd = segmentStart + segmentText.length;
-    return normalizeMarkRanges(ranges)
-        .map((range) => ({
-            start: Math.max(range.start, segmentStart) - segmentStart,
-            end: Math.min(range.end, segmentEnd) - segmentStart,
-            color: range.color
-        }))
-        .filter((range) => range.end > range.start);
-}
 
-function renderDetailPoints(points, fieldMarks = []) {
+function renderDetailPoints(points) {
     const list = safeList(points);
     if (!list.length) return '';
-    let offset = 0;
+    const ORDINALS = ['一', '二', '三', '四', '五', '六', '七'];
     return `
         <div class="detail-point-list">
             ${list.map((point, index) => {
-                const lineText = pointPlainText(point, index);
-                const contentText = pointContentWithMarks(point, index);
-                const contentOffset = Math.max(0, lineText.indexOf(contentText));
-                const contentMarks = getAdjustedMarksForSegment(fieldMarks, offset + contentOffset, contentText);
-                offset += lineText.length + 1;
+                const normalized = normalizeKeyPoint(point, index);
+                const subHtml = normalized.sub_points.map(sp =>
+                    `<li><span class="sub-point-bullet">◆</span>${escapeHTML(sp)}</li>`
+                ).join('');
                 return `
                     <section class="detail-point-item ${index === 0 ? 'is-open' : ''}">
                         <button class="detail-point-heading" type="button" data-point-toggle aria-expanded="${index === 0 ? 'true' : 'false'}">
-                            <span>${['一', '二', '三', '四', '五'][index] || index + 1}</span>
-                            <strong>${escapeHTML(pointHeading(point, index))}</strong>
+                            <span>${ORDINALS[index] || index + 1}</span>
+                            <strong>${escapeHTML(normalized.heading)}</strong>
                             <i data-lucide="chevron-down"></i>
                         </button>
                         <div class="detail-point-content">
-                            <p>${renderMarkedText(contentText, contentMarks)}</p>
+                            <ul class="sub-points-list">${subHtml}</ul>
                         </div>
                     </section>
                 `;
@@ -484,6 +465,9 @@ function normalizeCard(card) {
         card.summary = card.core_point;
     }
     card.category = normalizeCategory(card.category);
+    if (!Array.isArray(card.branches)) {
+        card.branches = [];
+    }
     return card;
 }
 
@@ -766,15 +750,6 @@ function init() {
     els.swipeStatConfused = document.getElementById('swipe-stat-confused');
     els.btnSwipeDoneClose = document.getElementById('btn-swipe-done-close');
     els.quizStage = document.getElementById('quiz-stage');
-    els.quizCardTitle = document.getElementById('quiz-card-title');
-    els.quizProgress = document.getElementById('quiz-progress');
-    els.quizQuestion = document.getElementById('quiz-question');
-    els.quizOptions = document.getElementById('quiz-options');
-    els.quizFeedback = document.getElementById('quiz-feedback');
-    els.quizStreakText = document.getElementById('quiz-streak-text');
-    els.quizScoreText = document.getElementById('quiz-score-text');
-    els.quizConfettiLayer = document.getElementById('quiz-confetti-layer');
-    els.quizPowerFloat = document.getElementById('quiz-power-float');
     els.quizComplete = document.getElementById('quiz-complete');
     els.quizCompleteTitle = document.getElementById('quiz-complete-title');
     els.quizCompleteCopy = document.getElementById('quiz-complete-copy');
@@ -868,11 +843,12 @@ function setCurrentCategory(category) {
     renderCards();
 }
 
-function deleteCategory(category) {
+async function deleteCategory(category) {
     const normalized = normalizeCategory(category);
     if (!normalized || normalized === DEFAULT_CATEGORY || normalized === MERGED_CATEGORY) return;
     const count = cards.filter((card) => normalizeCategory(card.category) === normalized).length;
-    if (!confirm(`删除“${normalized}”分类吗？该分类下 ${count} 张卡片会移到“默认”。`)) return;
+    const confirmed = await showAppConfirm('删除分类', `删除”${normalized}”分类吗？该分类下 ${count} 张卡片会移到”默认”。`, '删除', '取消');
+    if (!confirmed) return;
     cards.forEach((card) => {
         if (normalizeCategory(card.category) === normalized) {
             card.category = DEFAULT_CATEGORY;
@@ -1319,9 +1295,9 @@ function bindEvents() {
     bindBackdropClose(els.settingsModal, closeSettingsModal);
     bindBackdropClose(els.integratePreviewModal, closeIntegratePreview);
     
-    els.btnDeleteCard.addEventListener('click', () => {
+    els.btnDeleteCard.addEventListener('click', async () => {
         if (!currentViewCardId) return;
-        if (confirm('确定要删除这张卡片吗？')) {
+        if (await showAppConfirm('删除卡片', '确定要删除这张卡片吗？', '删除', '取消')) {
             const deletedId = currentViewCardId;
             cards = cards.filter(c => c.id !== deletedId);
             selectedCards.delete(deletedId);
@@ -1398,7 +1374,6 @@ function bindEvents() {
     els.reviewCard.addEventListener('click', (e) => {
         if (e.target.closest('.btn')) return; // 不拦截按钮点击
         if (reviewSession.completed || !currentReviewCardId) return;
-        if (reviewSession.completed || !currentReviewCardId) return;
         if (reviewCardFlipped) return;
         setReviewCardFlip(true);
     });
@@ -1406,7 +1381,7 @@ function bindEvents() {
     // 滑动复习弹窗
     bindCloseButton(els.btnCloseSwipeReview, closeSwipeReview);
     bindBackdropClose(els.swipeModal, closeSwipeReview);
-    els.btnSwipeDoneClose.addEventListener('click', startQuizMode);
+    els.btnSwipeDoneClose.addEventListener('click', completeSwipeReview);
     els.btnQuizCompleteClose.addEventListener('click', closeSwipeReview);
     els.btnSwipeUnderstood.addEventListener('click', () => handleSwipeDecision('understood'));
     els.btnSwipeConfused.addEventListener('click', () => handleSwipeDecision('confused'));
@@ -1442,7 +1417,7 @@ function bindEvents() {
             sessionStorage.removeItem('deepseek_api_key');
         }
         els.settingsModal.classList.add('hidden');
-        alert(API_KEY ? 'API Key 已保存到当前会话' : 'API Key 已清空');
+        showAppNotice('设置', API_KEY ? 'API Key 已保存到当前会话' : 'API Key 已清空');
     });
     bindCloseButton(els.btnCloseReviewStats, closeReviewStats);
     els.reviewStatsModal.addEventListener('click', (e) => {
@@ -1473,6 +1448,7 @@ function bindEvents() {
             if (els.batchActions) {
                 els.batchActions.classList.add('hidden');
             }
+            selectedCards.clear();
             if (els.cardsContainer) {
                 els.cardsContainer.style.display = action === 'graph' ? 'none' : '';
             }
@@ -1544,14 +1520,11 @@ function bindEvents() {
 // 渲染卡片列表
 function bindCloseButton(button, handler) {
     if (!button) return;
-    const close = (event) => {
+    button.addEventListener('click', (event) => {
         event.preventDefault();
         event.stopPropagation();
         handler();
-    };
-    button.addEventListener('click', close);
-    button.addEventListener('pointerup', close);
-    button.addEventListener('touchend', close, { passive: false });
+    });
 }
 
 function bindBackdropClose(modal, handler) {
@@ -1713,9 +1686,9 @@ function renderCards() {
         });
 
         const deleteBtn = cardEl.querySelector('.swipe-delete');
-        deleteBtn.addEventListener('click', (e) => {
+        deleteBtn.addEventListener('click', async (e) => {
             e.stopPropagation();
-            if (!confirm('确定删除这张卡片吗？')) return;
+            if (!await showAppConfirm('删除卡片', '确定删除这张卡片吗？', '删除', '取消')) return;
             cards = cards.filter(item => item.id !== card.id);
             selectedCards.delete(card.id);
             saveCards();
@@ -2065,7 +2038,9 @@ function resetReviewCardContent() {
     setReviewCardFlip(false);
     els.btnReviewDo.classList.remove('hidden');
     els.btnReviewSkip.classList.remove('hidden');
-    els.reviewSection.classList.remove('hidden');
+    if (currentView !== 'graph') {
+        els.reviewSection.classList.remove('hidden');
+    }
 }
 
 function setDailyReviewEntry(streakDays, remainingCount, disabled = false) {
@@ -2180,25 +2155,15 @@ function skipCurrentReviewCard() {
 }
 
 function resetSwipeReviewFlow() {
-    window.clearTimeout(quizTransitionTimer);
     swipeReviewQueue = [];
     swipeReviewIndex = 0;
     swipeUnderstood = 0;
     swipeConfused = 0;
     swipeReviewResults = {};
     activeReviewIds = [];
-    quizQueue = [];
-    quizIndex = 0;
-    quizCorrect = 0;
-    quizWrong = 0;
-    quizLocked = false;
-    currentQuizQuestion = null;
     els.swipeDone.classList.add('hidden');
     els.quizStage.classList.add('hidden');
     els.quizComplete.classList.add('hidden');
-    els.quizFeedback.classList.add('hidden');
-    els.quizFeedback.textContent = '';
-    els.quizOptions.innerHTML = '';
     els.swipeScene.style.display = '';
     els.swipeHead.style.display = '';
     els.swipeCard.style.transform = '';
@@ -2211,7 +2176,13 @@ function openSwipeReview() {
     const nextReviewIds = getReviewQueueIds(reviewSession);
     const nextSwipeQueue = nextReviewIds.map(getCardById).filter(Boolean);
     if (nextSwipeQueue.length === 0) {
-        alert('今天的每日回顾队列已经空了。');
+        // 队列为空但未标记完成，自动标记完成避免卡死
+        if (!reviewSession.completed) {
+            reviewSession.completed = true;
+            reviewSession.completedAt = new Date().toISOString();
+            saveReviewSession(reviewSession);
+        }
+        showAppNotice('每日回顾', '今天的每日回顾队列已经空了。');
         renderDailyReview();
         return;
     }
@@ -2238,6 +2209,33 @@ function finishSwipeReview() {
     els.swipeStatUnderstood.textContent = swipeUnderstood;
     els.swipeStatConfused.textContent = swipeConfused;
     els.swipeDone.classList.remove('hidden');
+}
+
+function completeSwipeReview() {
+    const stats = updateReviewStreak(swipeUnderstood);
+    activeReviewIds.forEach((id) => {
+        const card = getCardById(id);
+        if (!card) return;
+        card.reviewed_on = todayKey();
+        card.last_reviewed_at = new Date().toISOString();
+    });
+    saveCards();
+
+    reviewSession = ensureDailyReviewSession();
+    reviewSession.completed = true;
+    reviewSession.completedAt = new Date().toISOString();
+    reviewSession.correctCount = swipeUnderstood;
+    reviewSession.wrongCount = swipeConfused;
+    saveReviewSession(reviewSession);
+
+    els.swipeDone.classList.add('hidden');
+    els.quizComplete.classList.remove('hidden');
+    els.quizCompleteTitle.textContent = '恭喜完成今日回顾';
+    els.quizCompleteCopy.textContent = `连续打卡 ${stats.streakDays} 天，明天会继续从已读卡片中抽取。`;
+    els.quizCompleteCorrect.textContent = String(swipeUnderstood);
+    els.quizCompleteWrong.textContent = String(swipeConfused);
+    els.quizCompleteStreak.textContent = String(stats.streakDays);
+    applyReviewStats();
 }
 
 function renderSwipeReviewCard() {
@@ -2292,182 +2290,6 @@ function handleSwipeDecision(direction) {
     }, 320);
 }
 
-function getQuizPrompt(card) {
-    return String(card.core_point || card.summary || safeList(card.key_points)[0] || card.title || '').trim();
-}
-
-function trimOptionText(text, max = 86) {
-    const normalized = String(text || '').replace(/\s+/g, ' ').trim();
-    return normalized.length > max ? `${normalized.slice(0, max)}...` : normalized;
-}
-
-function getDistractorTexts(currentCard) {
-    const points = safeList(currentCard.key_points).map((point, index) => normalizeKeyPoint(point, index));
-    const core = getQuizPrompt(currentCard);
-    const title = currentCard.title || '';
-    const candidates = [];
-
-    // 用 key_points 的内容改造为干扰项
-    if (points.length >= 1 && points[0].content) {
-        candidates.push(trimOptionText(points[0].content));
-    }
-    if (points.length >= 2 && points[1].content) {
-        candidates.push(trimOptionText(points[1].content));
-    }
-    if (points.length >= 3 && points[2].content) {
-        candidates.push(trimOptionText(points[2].content));
-    }
-
-    // 用其他卡片的 core_point 作为干扰项
-    const otherCards = cards.filter(c => c.id !== currentCard.id && c.core_point).slice(0, 3);
-    otherCards.forEach(c => {
-        candidates.push(trimOptionText(c.core_point));
-    });
-
-    const used = new Set([core]);
-    return candidates
-        .map((text) => trimOptionText(text))
-        .filter((text) => text && text.length > 10 && !used.has(text) && (used.add(text), true))
-        .slice(0, 3);
-}
-
-function buildQuizQuestion(card) {
-    const correctAnswer = trimOptionText(getQuizPrompt(card));
-    const distractors = getDistractorTexts(card);
-    QUIZ_FALLBACK_OPTIONS.forEach((text) => {
-        if (distractors.length >= 3) return;
-        if (!text || text === correctAnswer || distractors.includes(text)) return;
-        distractors.push(text);
-    });
-    const options = shuffleArray([correctAnswer, ...distractors]).slice(0, 4);
-    const labels = ['A', 'B', 'C', 'D'];
-
-    return {
-        card,
-        question: '以下哪项最符合这张卡片的主要观点？',
-        correctAnswer,
-        options: options.map((text, index) => ({
-            label: labels[index] || String(index + 1),
-            text,
-            correct: text === correctAnswer
-        }))
-    };
-}
-
-function launchQuizCelebration() {
-    els.quizConfettiLayer.innerHTML = '';
-    const colors = ['#f6c453', '#7c5cff', '#4f8cff', '#52c26d', '#ff7a59'];
-    for (let i = 0; i < 18; i++) {
-        const piece = document.createElement('span');
-        piece.className = 'quiz-confetti';
-        piece.style.left = `${8 + Math.random() * 84}%`;
-        piece.style.background = colors[i % colors.length];
-        piece.style.animationDelay = `${Math.random() * 0.15}s`;
-        piece.style.setProperty('--confetti-x', `${(Math.random() - 0.5) * 140}px`);
-        piece.style.setProperty('--confetti-r', `${Math.random() * 320 - 160}deg`);
-        els.quizConfettiLayer.appendChild(piece);
-    }
-    window.setTimeout(() => {
-        els.quizConfettiLayer.innerHTML = '';
-    }, 1100);
-}
-
-function showKnowledgePower() {
-    els.quizPowerFloat.classList.remove('show');
-    void els.quizPowerFloat.offsetWidth;
-    els.quizPowerFloat.classList.add('show');
-}
-
-function updateQuizStatusText() {
-    const stats = loadReviewStats();
-    els.quizStreakText.textContent = `🔥 连续打卡 ${stats.streakDays} 天`;
-    els.quizScoreText.textContent = `答对 ${quizCorrect} 题`;
-}
-
-function renderQuizQuestion() {
-    if (quizIndex >= quizQueue.length) {
-        completeQuizReview();
-        return;
-    }
-
-    currentQuizQuestion = buildQuizQuestion(quizQueue[quizIndex]);
-    quizLocked = false;
-    els.swipeDone.classList.add('hidden');
-    els.quizStage.classList.remove('hidden');
-    els.quizCardTitle.textContent = currentQuizQuestion.card.title || '知识卡片';
-    els.quizQuestion.textContent = currentQuizQuestion.question;
-    els.quizProgress.textContent = `${quizIndex + 1} / ${quizQueue.length}`;
-    els.quizFeedback.classList.add('hidden');
-    els.quizFeedback.textContent = '';
-    updateQuizStatusText();
-    els.quizOptions.innerHTML = currentQuizQuestion.options.map((option, index) => `
-        <button type="button" class="quiz-option" data-option-index="${index}">
-            <span class="quiz-option-label">${option.label}</span>
-            <span class="quiz-option-text">${escapeHTML(option.text)}</span>
-        </button>
-    `).join('');
-
-    els.quizOptions.querySelectorAll('.quiz-option').forEach((button) => {
-        button.addEventListener('click', () => handleQuizAnswer(Number(button.dataset.optionIndex)));
-    });
-}
-
-function startQuizMode() {
-    window.clearTimeout(quizTransitionTimer);
-    const prioritizedIds = [
-        ...activeReviewIds.filter((id) => swipeReviewResults[id] === 'confused'),
-        ...activeReviewIds.filter((id) => swipeReviewResults[id] === 'understood')
-    ];
-
-    quizQueue = prioritizedIds.map(getCardById).filter(Boolean).slice(0, 3);
-    if (quizQueue.length === 0) {
-        closeSwipeReview();
-        return;
-    }
-
-    quizIndex = 0;
-    quizCorrect = 0;
-    quizWrong = 0;
-    els.quizComplete.classList.add('hidden');
-    renderQuizQuestion();
-}
-
-function handleQuizAnswer(optionIndex) {
-    if (quizLocked || !currentQuizQuestion) return;
-    quizLocked = true;
-
-    const selected = currentQuizQuestion.options[optionIndex];
-    const buttons = Array.from(els.quizOptions.querySelectorAll('.quiz-option'));
-    buttons.forEach((button, index) => {
-        const option = currentQuizQuestion.options[index];
-        button.disabled = true;
-        if (option.correct) {
-            button.classList.add('is-correct');
-        }
-    });
-
-    if (selected?.correct) {
-        quizCorrect++;
-        buttons[optionIndex]?.classList.add('is-correct');
-        els.quizFeedback.textContent = '回答正确，知识力 +1';
-        els.quizFeedback.className = 'quiz-feedback';
-        launchQuizCelebration();
-        showKnowledgePower();
-    } else {
-        quizWrong++;
-        buttons[optionIndex]?.classList.add('is-wrong');
-        els.quizFeedback.textContent = `答错了，正确答案：${currentQuizQuestion.correctAnswer}`;
-        els.quizFeedback.className = 'quiz-feedback is-wrong';
-    }
-
-    els.quizFeedback.classList.remove('hidden');
-    updateQuizStatusText();
-    window.setTimeout(() => {
-        quizIndex++;
-        renderQuizQuestion();
-    }, selected?.correct ? 1100 : 3000);
-}
-
 function updateReviewStreak(correctCount) {
     const stats = loadReviewStats();
     const today = todayKey();
@@ -2484,33 +2306,6 @@ function updateReviewStreak(correctCount) {
     return stats;
 }
 
-function completeQuizReview() {
-    const stats = updateReviewStreak(quizCorrect);
-    activeReviewIds.forEach((id) => {
-        const card = getCardById(id);
-        if (!card) return;
-        card.reviewed_on = todayKey();
-        card.last_reviewed_at = new Date().toISOString();
-    });
-    saveCards();
-
-    reviewSession = ensureDailyReviewSession();
-    reviewSession.completed = true;
-    reviewSession.completedAt = new Date().toISOString();
-    reviewSession.correctCount = quizCorrect;
-    reviewSession.wrongCount = quizWrong;
-    saveReviewSession(reviewSession);
-
-    els.quizStage.classList.add('hidden');
-    els.quizComplete.classList.remove('hidden');
-    els.quizCompleteTitle.textContent = '恭喜您已经完成本次打卡';
-    els.quizCompleteCopy.textContent = `进度环已更新，连续打卡 ${stats.streakDays} 天，明天会继续从已读卡片中抽取。`;
-    els.quizCompleteCorrect.textContent = String(quizCorrect);
-    els.quizCompleteWrong.textContent = String(quizWrong);
-    els.quizCompleteStreak.textContent = String(stats.streakDays);
-    applyReviewStats();
-}
-
 function bindSwipeReviewGestures() {
     const scene = els.swipeScene;
     const card = els.swipeCard;
@@ -2520,7 +2315,7 @@ function bindSwipeReviewGestures() {
     let dirLock = null;
 
     scene.addEventListener('pointerdown', (e) => {
-        if (!swipeReviewQueue.length || els.quizStage.classList.contains('hidden') === false) return;
+        if (!swipeReviewQueue.length) return;
         startX = e.clientX;
         startY = e.clientY;
         dx = 0;
@@ -2624,9 +2419,24 @@ function openCardDetail(card, editMode = false) {
             <div class="detail-section">
                 <h4>关键要点</h4>
                 <div ${styleAttr(card, 'key_points')}>
-                    ${renderDetailPoints(card.key_points, card.marks?.key_points)}
+                    ${renderDetailPoints(card.key_points)}
                 </div>
             </div>
+            ${safeList(card.branches).length ? `
+            <div class="detail-section">
+                <h4>分支差异</h4>
+                ${card.branches.map(branch => `
+                    <div class="branch-section">
+                        <button class="branch-toggle" type="button" data-branch-toggle>
+                            <span class="branch-label">${escapeHTML(branch.label)}</span>
+                            <i data-lucide="chevron-down"></i>
+                        </button>
+                        <div class="branch-content">
+                            ${renderDetailPoints(branch.points)}
+                        </div>
+                    </div>
+                `).join('')}
+            </div>` : ''}
             ${renderSourceLink(card)}
             ${safeList(card.sourceCards).length ? `
             <div class="detail-section">
@@ -2649,7 +2459,7 @@ function openCardDetail(card, editMode = false) {
             <div class="detail-section">
                 <h4>关键要点</h4>
                 <div ${styleAttr(card, 'key_points')}>
-                    ${renderDetailPoints(card.key_points, card.marks?.key_points)}
+                    ${renderDetailPoints(card.key_points)}
                 </div>
             </div>
             ${renderSourceLink(card)}
@@ -2691,6 +2501,13 @@ function bindDetailPointToggles() {
             if (!item) return;
             const isOpen = item.classList.toggle('is-open');
             button.setAttribute('aria-expanded', String(isOpen));
+        });
+    });
+    els.modalBody.querySelectorAll('[data-branch-toggle]').forEach((button) => {
+        button.addEventListener('click', () => {
+            const section = button.closest('.branch-section');
+            if (!section) return;
+            section.classList.toggle('is-open');
         });
     });
 }
@@ -2739,7 +2556,10 @@ function renderCardEditForm(card) {
                 </div>
             </div>
             ${renderEditField('core_point', '主要观点', 'textarea', card.core_point || card.summary || '', card, { placeholder: '用一句话写清这张卡最重要的观点' })}
-            ${renderEditField('key_points', '关键要点', 'textarea', safeList(card.key_points).map((point, index) => pointPlainText(point, index)).join('\n'), card, { placeholder: '每行一个要点', helper: '保存后会自动整理成要点列表。' })}
+            ${renderEditField('key_points', '关键要点', 'textarea', safeList(card.key_points).map((point, index) => {
+                const n = normalizeKeyPoint(point, index);
+                return n.heading + '：' + n.sub_points.join('；');
+            }).join('\n'), card, { placeholder: '每行一个要点，格式：标题：论点1；论点2', helper: '每行格式为"标题：论点1；论点2"，保存后自动整理。' })}
             ${renderEditField('note', '自由补充', 'textarea', card.note || '', card, { placeholder: '补充你的理解、例子或后续行动' })}
             <label class="editable-field" data-field="video_link">
                 <span>原视频链接</span>
@@ -2785,6 +2605,7 @@ function renderEditField(field, label, type, value, card, options = {}) {
     `;
 }
 
+let _modalBodyClickBound = false;
 function bindEditStyleControls() {
     els.modalBody.querySelectorAll('[data-style-field]').forEach((input) => {
         input.addEventListener('focus', () => {
@@ -2847,15 +2668,18 @@ function bindEditStyleControls() {
     }
 
     // 点击空白区域关闭下拉和颜色工具栏
-    els.modalBody.addEventListener('click', () => {
-        if (categoryDropdown && !categoryDropdown.classList.contains('hidden')) {
-            categoryDropdown.classList.add('hidden');
-        }
-        const toolbar = document.getElementById('selection-mark-toolbar');
-        if (toolbar && !toolbar.classList.contains('hidden')) {
-            toolbar.classList.add('hidden');
-        }
-    });
+    if (!_modalBodyClickBound) {
+        _modalBodyClickBound = true;
+        els.modalBody.addEventListener('click', () => {
+            if (categoryDropdown && !categoryDropdown.classList.contains('hidden')) {
+                categoryDropdown.classList.add('hidden');
+            }
+            const toolbar = document.getElementById('selection-mark-toolbar');
+            if (toolbar && !toolbar.classList.contains('hidden')) {
+                toolbar.classList.add('hidden');
+            }
+        });
+    }
 
     const aiButton = document.getElementById('btn-ai-supplement');
     if (aiButton) {
@@ -3296,7 +3120,17 @@ function saveEditedCard() {
         card.is_integrated = false;
     }
     card.core_point = stripInlineMarks(getEditablePlainText(coreInput)).trim();
-    card.key_points = stripInlineMarks(getEditablePlainText(pointsInput)).split('\n').map(p => p.trim()).filter(Boolean);
+    card.key_points = stripInlineMarks(getEditablePlainText(pointsInput)).split('\n').map(line => {
+        const trimmed = line.trim();
+        if (!trimmed) return null;
+        const colonMatch = trimmed.match(/^([^：:]{2,20})[：:]\s*(.+)$/);
+        if (colonMatch) {
+            const heading = colonMatch[1].trim();
+            const sub_points = colonMatch[2].split(/[；;]/).map(s => s.trim()).filter(Boolean);
+            return { heading, sub_points: sub_points.length ? sub_points : [colonMatch[2].trim()] };
+        }
+        return { heading: trimmed.slice(0, 12), sub_points: [trimmed] };
+    }).filter(Boolean);
     card.quote = card.quote || '';
     card.action = card.action || '';
     card.note = stripInlineMarks(getEditablePlainText(noteInput)).trim();
@@ -3403,12 +3237,10 @@ async function callDeepSeek(prompt) {
 
     // 带超时的 fetch 封装
     const fetchWithTimeout = (url, options, timeoutMs = 30000) => {
-        return Promise.race([
-            fetch(url, options),
-            new Promise((_, reject) =>
-                setTimeout(() => reject(new Error(`请求超时 (${timeoutMs}ms)`)), timeoutMs)
-            )
-        ]);
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
+        return fetch(url, { ...options, signal: controller.signal })
+            .finally(() => clearTimeout(timer));
     };
 
     // 1. 先尝试代理
@@ -3601,6 +3433,45 @@ function showAppNotice(title, message, buttonText = '知道了') {
     notice.querySelector('.app-notice-btn')?.addEventListener('click', closeNotice);
 }
 
+function showAppConfirm(title, message, confirmText = '确定', cancelText = '取消') {
+    return new Promise((resolve) => {
+        const oldNotice = document.querySelector('.app-notice');
+        if (oldNotice) oldNotice.remove();
+
+        const notice = document.createElement('div');
+        notice.className = 'app-notice';
+        const lines = String(message || '')
+            .split('\n')
+            .map((line) => line.trim())
+            .filter(Boolean);
+
+        notice.innerHTML = `
+            <div class="app-notice-card" role="dialog" aria-modal="true" aria-label="${escapeHTML(title)}">
+                <button type="button" class="app-notice-close" aria-label="关闭">
+                    <i data-lucide="x"></i>
+                </button>
+                <div class="app-notice-kicker">确认</div>
+                <h3>${escapeHTML(title)}</h3>
+                <div class="app-notice-body">
+                    ${lines.map((line) => `<p>${escapeHTML(line)}</p>`).join('')}
+                </div>
+                <div class="app-notice-btns">
+                    <button type="button" class="app-notice-btn app-notice-btn-cancel">${escapeHTML(cancelText)}</button>
+                    <button type="button" class="app-notice-btn app-notice-btn-confirm">${escapeHTML(confirmText)}</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(notice);
+        refreshIcons();
+
+        const close = (result) => { notice.remove(); resolve(result); };
+        notice.addEventListener('click', (event) => { if (event.target === notice) close(false); });
+        notice.querySelector('.app-notice-close')?.addEventListener('click', () => close(false));
+        notice.querySelector('.app-notice-btn-cancel')?.addEventListener('click', () => close(false));
+        notice.querySelector('.app-notice-btn-confirm')?.addEventListener('click', () => close(true));
+    });
+}
+
 function showNeedsTextMessage(extracted) {
     showAppNotice('需要补充视频文字', [
         extracted?.reason || '暂时无法只通过链接提取视频完整文字。',
@@ -3646,7 +3517,7 @@ async function handleGenerateCard() {
     console.log('[Zcard] handleGenerateCard 被调用');
     let text = els.videoInput.value.trim();
     if (!text) {
-        alert('请先输入视频文案或链接');
+        showAppNotice('提示', '请先输入视频文案或链接');
         return;
     }
     console.log('[Zcard] 输入内容:', text.substring(0, 50));
@@ -3654,7 +3525,22 @@ async function handleGenerateCard() {
     // 提取所有可能的链接（支持多个链接）
     const linkMatches = text.match(/https?:\/\/[^\s]+/g) || [];
     const videoLink = linkMatches.length > 0 ? linkMatches[0] : ''; // 记录第一个作为主要来源
-    
+
+    // 检测到视频链接，提示功能待解锁
+    if (videoLink) {
+        showAppNotice('功能开发中', [
+            '视频链接转卡片功能正在优化中，暂时无法使用。',
+            '',
+            '推荐方式：',
+            '1. 复制视频文案/评论文字',
+            '2. 或用豆包/ChatGPT 分析视频后复制结果',
+            '3. 粘贴到此处，一键生成知识卡片',
+            '',
+            '视频链接功能后续开放，敬请期待！'
+        ].join('\n'));
+        return;
+    }
+
     els.loadingIndicator.classList.remove('hidden');
     els.btnGenerate.disabled = true;
     console.log('[Zcard] loading 显示完毕');
@@ -3726,11 +3612,11 @@ async function handleGenerateCard() {
             prompt = `你是一个知识整合专家。用户提供了多个信息源的内容，请将它们融合成一张知识卡片。严格按JSON格式返回，不要返回任何其他文字，不要使用markdown格式。
 
 返回格式：
-{“title”: “综合提炼的标题（10字以内）”, “core_point”: “主要观点（一句话总结共性）”, “key_points”: [{“heading”:”小标题”,”content”:”详细说明”}], “quote”: “”, “action”: “”, “category”: “${DEFAULT_CATEGORY}”}
+{“title”: “综合提炼的标题（10字以内）”, “core_point”: “主要观点（一句话总结共性）”, “key_points”: [{“heading”:”小标题”,”sub_points”:[“分论点1”,”分论点2”]}], “quote”: “”, “action”: “”, “category”: “${DEFAULT_CATEGORY}”}
 
 字段要求：
 1. 所有字段必须使用中文。
-2. key_points 返回 3-5 个对象，根据实际信息量决定。
+2. key_points 返回 3-5 个对象，根据实际信息量决定。每个 key_point 有 heading 和 sub_points（字符串数组，2-4 条）。
 3. 只能基于提供的原文总结，不能自行补充或推测。
 4. quote、action 固定返回空字符串，category 固定返回”${DEFAULT_CATEGORY}”。
 
@@ -3743,11 +3629,11 @@ ${text}`;
             const label = hasLink ? '以下是从视频中提取的内容' : '以下内容';
             prompt = `你是一个${roleName}。请对${label}进行结构化总结，严格按JSON格式返回，不要返回任何其他文字，不要使用markdown格式：
 
-{“title”: “标题（10字以内）”, “core_point”: “主要观点”, “key_points”: [{“heading”:”小标题”,”content”:”详细说明”}], “quote”: “”, “action”: “”, “category”: “${DEFAULT_CATEGORY}”}
+{“title”: “标题（10字以内）”, “core_point”: “主要观点”, “key_points”: [{“heading”:”小标题”,”sub_points”:[“分论点1”,”分论点2”]}], “quote”: “”, “action”: “”, “category”: “${DEFAULT_CATEGORY}”}
 
 字段要求：
 1. 所有字段必须使用中文。
-2. key_points 根据原文信息量生成 2-5 个对象，信息少就少生成，不要凑数。
+2. key_points 根据原文信息量生成 2-5 个对象，信息少就少生成，不要凑数。每个 key_point 有 heading 和 sub_points（字符串数组，2-4 条）。
 3. 只能基于提供的原文总结，绝对不能自行补充或推测原文没有的内容。
 4. 不要使用”视频展示了””视频中”等措辞，直接陈述内容本身。
 5. quote、action 固定返回空字符串，category 固定返回”${DEFAULT_CATEGORY}”。
@@ -3804,7 +3690,7 @@ ${text}`;
     focusGeneratedCard(newCard.id);
     
     if (result.is_local) {
-        alert('未检测到可用 API，已使用本地演示模式生成卡片。');
+        showAppNotice('本地模式', '未检测到可用 API，已使用本地演示模式生成卡片。');
     }
 
     try {
@@ -3815,12 +3701,20 @@ ${text}`;
     }
 }
 
+function normalizeBranches(branches) {
+    return safeList(branches).map(branch => ({
+        label: String(branch.label || '').trim(),
+        points: safeList(branch.points).map((p, i) => normalizeKeyPoint(p, i)).filter(p => p.heading && p.content)
+    })).filter(b => b.label && b.points.length > 0);
+}
+
 function normalizeIntegratedResult(result, selectedCardsData, category) {
     const fallbackCategory = normalizeCategory(category);
     const normalized = {
         title: String(result?.title || '').trim(),
         core_point: String(result?.core_point || result?.summary || '').trim(),
         key_points: safeList(result?.key_points).map((item, index) => normalizeKeyPoint(item, index)).filter((item) => item.heading && item.content),
+        branches: normalizeBranches(result?.branches),
         quote: '',
         action: '',
         category: normalizeCategory(result?.category || fallbackCategory),
@@ -3848,6 +3742,7 @@ function createLocalIntegratedCard(selectedCardsData, category) {
                 '7年累计亏损82亿元，被正式申请破产',
                 '折射影视行业整体寒冬'
             ],
+            branches: [],
             quote: '',
             action: '',
             category: normalizeCategory(category),
@@ -3855,19 +3750,58 @@ function createLocalIntegratedCard(selectedCardsData, category) {
         };
     }
 
-    const mergedPoints = [...new Map(selectedCardsData
-        .flatMap((card) => safeList(card.key_points).map((point, index) => normalizeKeyPoint(point, index)))
-        .filter((point) => point.heading && point.content)
-        .map((point) => [pointHeading(point, 0), point])).values()]
-        .slice(0, 5);
-    while (mergedPoints.length < 4) {
+    // 按 heading 分组，统计每个 heading 出现在几张卡片中
+    const headingMap = new Map(); // heading -> { points: [{cardIndex, point}], count }
+    selectedCardsData.forEach((card, cardIndex) => {
+        safeList(card.key_points).forEach((point, index) => {
+            const normalized = normalizeKeyPoint(point, index);
+            if (!normalized.heading) return;
+            const key = normalized.heading;
+            if (!headingMap.has(key)) headingMap.set(key, { points: [], count: 0 });
+            headingMap.get(key).points.push({ cardIndex, point: normalized });
+            headingMap.get(key).count++;
+        });
+    });
+
+    // 共同观点（出现在多张卡片中）→ key_points
+    const mergedPoints = [];
+    // 独有观点（只出现在一张卡片中）→ 按卡片分组到 branches
+    const branchMap = new Map(); // cardIndex -> points[]
+
+    headingMap.forEach((data, heading) => {
+        if (data.count > 1 || selectedCardsData.length === 1) {
+            // 合并到 key_points
+            mergedPoints.push(data.points[0].point);
+        } else {
+            // 独有观点，放入 branches
+            const ci = data.points[0].cardIndex;
+            if (!branchMap.has(ci)) branchMap.set(ci, []);
+            branchMap.get(ci).push(data.points[0].point);
+        }
+    });
+
+    // 补充 key_points 到至少 3 条
+    while (mergedPoints.length < 3) {
         const fallbackHeadings = ['背景脉络', '共同结论', '差异视角', '复盘价值'];
         const fallbackContents = ['补充事件背景，串起前因后果。', '合并重复信息，提炼关键节点。', '从不同卡片中保留差异视角，避免只剩单一结论。', '把碎片信息整理成一张后续可复用的完整卡片。'];
         mergedPoints.push({
             heading: fallbackHeadings[mergedPoints.length] || '整合价值',
+            sub_points: [fallbackContents[mergedPoints.length] || '提炼共同信息，形成一张完整卡片。'],
             content: fallbackContents[mergedPoints.length] || '提炼共同信息，形成一张完整卡片。'
         });
     }
+
+    const branches = [];
+    branchMap.forEach((points, cardIndex) => {
+        const card = selectedCardsData[cardIndex];
+        if (points.length > 0 && card) {
+            branches.push({
+                label: card.title || `卡片${cardIndex + 1}`,
+                points
+            });
+        }
+    });
+
     const corePoints = [...new Set(selectedCardsData.map((card) => card.core_point || card.summary).filter(Boolean))];
     const categories = [...new Set(selectedCardsData.map((card) => normalizeCategory(card.category)).filter((item) => item !== DEFAULT_CATEGORY))];
 
@@ -3875,6 +3809,7 @@ function createLocalIntegratedCard(selectedCardsData, category) {
         title: `${selectedCardsData[0]?.title?.slice(0, 8) || '知识'}整合`,
         core_point: corePoints.join('；').slice(0, 120) || '这组卡片反映的是同一主题下的多维信息，需要合并理解。',
         key_points: mergedPoints,
+        branches,
         quote: '',
         action: '',
         category: normalizeCategory(category || categories[0] || DEFAULT_CATEGORY),
@@ -3947,15 +3882,15 @@ async function handleIntegrateCards() {
 1. 只返回 JSON，不要返回任何其他文字，不要使用 markdown。
 2. 标题控制在 8-14 个字，能概括所有来源卡片的共同主题。
 3. core_point 用 70-120 字，总结这些卡片合并后的核心观点。
-4. key_points 返回 4 到 6 条，每条是对象 {"heading":"小标题","content":"详细说明"}。
-5. key_points 要去重、归纳、合并，不要简单拼接原卡片。
-6. heading 必须是有内容的概括性小标题，例如“内在稳定”“外部奖惩”“决策边界”，不要写“要点1”“要点2”。
-7. 每条 content 控制在 60-120 字，适合作为知识卡片正文。
+4. key_points 返回所有来源卡片共同的观点，去重归纳合并后 3-5 条，每条是对象 {“heading”:”小标题”,”sub_points”:[“分论点1”,”分论点2”]}。
+5. heading 必须是有内容的概括性小标题，例如”内在稳定””外部奖惩””决策边界”，不要写”要点1””要点2”。
+6. 每个 key_point 的 sub_points 包含 2-4 条具体观察，每条 60-120 字。sub_points 是字符串数组，不带前缀符号。
+7. branches 返回各卡片独有的、无法合并的观点。每个 branch 是 {“label”:”来源卡片标题”,”points”:[{“heading”:”小标题”,”sub_points”:[“分论点”]}]}。如果所有观点都已合并到 key_points，branches 返回空数组 []。
 8. quote 和 action 固定返回空字符串。
-9. category 固定返回“${MERGED_CATEGORY}”。
+9. category 固定返回”${MERGED_CATEGORY}”。
 
 返回格式：
-{"title":"整合标题","core_point":"主要观点","key_points":[{"heading":"小标题","content":"详细说明"}],"quote":"","action":"","category":"${MERGED_CATEGORY}"}
+{“title”:”整合标题”,”core_point”:”主要观点”,”key_points”:[{“heading”:”小标题”,”sub_points”:[“共同分论点”]}],”branches”:[{“label”:”卡片A标题”,”points”:[{“heading”:”独有观点”,”sub_points”:[“详细说明”]}]}],”quote”:””,”action”:””,”category”:”${MERGED_CATEGORY}”}
 
 卡片内容：
 ${combinedContent}`;
@@ -3978,14 +3913,11 @@ ${combinedContent}`;
 // 整合预览 —— 确认
 function confirmIntegrate() {
     if (!pendingIntegrateResult) return;
-    const { result, selectedIds, category } = pendingIntegrateResult;
-    const normalizedPoints = safeList(result.key_points)
-        .map((point, index) => normalizeKeyPoint(point, index))
-        .filter((point) => point.heading && point.content);
+    const { result, selectedIds } = pendingIntegrateResult;
 
     const validSourceCards = cards.filter((card) => selectedIds.has(card.id));
     if (validSourceCards.length === 0) {
-        alert('源卡片已被删除，无法完成整合。');
+        showAppNotice('整合失败', '源卡片已被删除，无法完成整合。');
         pendingIntegrateResult = null;
         return;
     }
@@ -3994,7 +3926,8 @@ function confirmIntegrate() {
         title: result.title,
         core_point: result.core_point,
         summary: result.core_point,
-        key_points: normalizedPoints,
+        key_points: result.key_points,
+        branches: normalizeBranches(result.branches),
         quote: result.quote || '',
         action: result.action || '',
         category: MERGED_CATEGORY,
@@ -4037,7 +3970,7 @@ function startFlashcardMode() {
     flashcardQueue = cards.filter(c => c.isRead);
 
     if (flashcardQueue.length === 0) {
-        alert('还没有已读卡片，去详情页点击 Get it 吧！');
+        showAppNotice('提示', '还没有已读卡片，去详情页点击 Get it 吧！');
         return;
     }
     
@@ -4048,7 +3981,7 @@ function startFlashcardMode() {
 
 function renderCurrentFlashcard() {
     if (currentFlashcardIndex >= flashcardQueue.length) {
-        alert('复习完成！');
+        showAppNotice('复习完成', '所有已读卡片复习完毕！');
         els.flashcardModal.classList.add('hidden');
         return;
     }
@@ -4278,7 +4211,7 @@ async function downloadCanvasImage(canvas, filename) {
             throw new Error('请允许浏览器打开新窗口后重试');
         }
         setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
-        alert('图片已在新窗口打开，请长按或保存到相册。');
+        showAppNotice('导出成功', '图片已在新窗口打开，请长按或保存到相册。');
         return;
     }
 
@@ -4294,7 +4227,7 @@ async function downloadCanvasImage(canvas, filename) {
 // 导出图片
 async function handleExportImages() {
     if (selectedCards.size === 0) {
-        alert('请先勾选要导出的卡片。');
+        showAppNotice('提示', '请先勾选要导出的卡片。');
         return;
     }
 
@@ -4307,7 +4240,7 @@ async function handleExportImages() {
         await downloadCanvasImage(canvas, `知识卡片导出_${Date.now()}.png`);
     } catch (e) {
         console.error('导出失败:', e);
-        alert(`导出图片失败：${e.message || '未知错误'}`);
+        showAppNotice('导出失败', `导出图片失败：${e.message || '未知错误'}`);
     } finally {
         selectedCards.clear();
         updateBatchActions();
@@ -4331,7 +4264,7 @@ function saveCards() {
             localStorage.removeItem('douyin_review_stats');
             localStorage.setItem('douyin_cards', JSON.stringify(cards));
         } catch (retryError) {
-            alert('存储空间不足，部分数据可能未保存。建议导出重要卡片后清理浏览器数据。');
+            showAppNotice('存储不足', '存储空间不足，部分数据可能未保存。建议导出重要卡片后清理浏览器数据。');
         }
     }
 }

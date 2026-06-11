@@ -2142,6 +2142,25 @@ textarea::placeholder {
     font-weight: 700;
 }
 
+.app-notice-btns {
+    display: flex;
+    gap: 10px;
+}
+
+.app-notice-btns .app-notice-btn {
+    flex: 1;
+}
+
+.app-notice-btn-cancel {
+    background: #f0ebe6 !important;
+    color: #666 !important;
+}
+
+.app-notice-btn-confirm {
+    background: #e74c3c !important;
+    color: #fff !important;
+}
+
 @keyframes modalFadeIn {
     from { opacity: 0; transform: translateY(10px); }
     to { opacity: 1; transform: translateY(0); }
@@ -2275,11 +2294,16 @@ textarea::placeholder {
     gap: 10px;
     width: 100%;
     margin-bottom: 8px;
-    padding: 0;
+    padding: 6px 4px;
     border: 0;
+    border-radius: var(--radius-sm);
     background: transparent;
     text-align: left;
     cursor: pointer;
+    transition: background 0.18s ease;
+}
+.detail-point-heading:hover {
+    background: rgba(242, 238, 233, 0.35);
 }
 
 .detail-point-heading span {
@@ -2321,6 +2345,20 @@ textarea::placeholder {
 
 .detail-point-item.is-open .detail-point-content {
     display: block;
+    animation: fadeInUp 0.25s ease;
+}
+
+.detail-point-item.is-open .sub-points-list li {
+    animation: subPointSlide 0.3s ease both;
+}
+.detail-point-item.is-open .sub-points-list li:nth-child(1) { animation-delay: 0.04s; }
+.detail-point-item.is-open .sub-points-list li:nth-child(2) { animation-delay: 0.08s; }
+.detail-point-item.is-open .sub-points-list li:nth-child(3) { animation-delay: 0.12s; }
+.detail-point-item.is-open .sub-points-list li:nth-child(4) { animation-delay: 0.16s; }
+
+@keyframes subPointSlide {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
 }
 
 .detail-point-content p {
@@ -2329,6 +2367,97 @@ textarea::placeholder {
     font-size: 16px;
     line-height: 1.85;
     color: #393733;
+}
+
+.sub-points-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    padding-left: 36px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.sub-points-list li {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    font-size: 15.5px;
+    line-height: 1.75;
+    color: var(--color-text-regular);
+    padding: 8px 12px;
+    border-radius: var(--radius-sm);
+    background: linear-gradient(135deg, rgba(242, 238, 233, 0.35), rgba(242, 238, 233, 0.12));
+    border-left: 2px solid rgba(217, 119, 87, 0.2);
+    transition: background 0.2s ease, border-color 0.2s ease;
+}
+.sub-points-list li:hover {
+    background: linear-gradient(135deg, rgba(242, 238, 233, 0.55), rgba(242, 238, 233, 0.22));
+    border-left-color: rgba(217, 119, 87, 0.45);
+}
+.sub-point-bullet {
+    color: var(--color-accent);
+    font-size: 11px;
+    flex-shrink: 0;
+    margin-top: 5px;
+    opacity: 0.7;
+}
+
+.branch-section {
+    margin-bottom: 10px;
+    border-left: 2px solid rgba(217, 119, 87, 0.18);
+    padding-left: 14px;
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+    transition: border-color 0.2s ease;
+}
+.branch-section.is-open {
+    border-left-color: rgba(217, 119, 87, 0.45);
+}
+.branch-toggle {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 10px 12px;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: linear-gradient(135deg, rgba(242, 238, 233, 0.4), rgba(242, 238, 233, 0.15));
+    cursor: pointer;
+    font-size: 14px;
+    color: var(--color-text-muted);
+    transition: background 0.2s ease, color 0.2s ease;
+}
+.branch-toggle:hover {
+    background: linear-gradient(135deg, rgba(242, 238, 233, 0.6), rgba(242, 238, 233, 0.3));
+    color: var(--color-text-regular);
+}
+.branch-toggle i {
+    width: 16px;
+    height: 16px;
+    color: var(--color-text-muted);
+    transition: transform 0.2s ease;
+    flex-shrink: 0;
+}
+.branch-section.is-open .branch-toggle i {
+    transform: rotate(180deg);
+}
+.branch-label {
+    background: rgba(217, 119, 87, 0.08);
+    border: 1px solid rgba(217, 119, 87, 0.15);
+    border-radius: var(--radius-pill);
+    padding: 3px 12px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--color-accent);
+    letter-spacing: -0.01em;
+}
+.branch-content {
+    display: none;
+    padding-top: 6px;
+    animation: fadeInUp 0.25s ease;
+}
+.branch-section.is-open .branch-content {
+    display: block;
 }
 
 .source-link-section a {
